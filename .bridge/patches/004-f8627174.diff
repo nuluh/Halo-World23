@@ -1,0 +1,513 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+new file mode 100644
+index 0000000..0acb6ed
+--- /dev/null
++++ b/CMakeLists.txt
+@@ -0,0 +1,204 @@
++cmake_minimum_required(VERSION 3.20)
++
++project(openVFIFE LANGUAGES CXX)
++
++include(CTest)
++include(CheckCXXCompilerFlag)
++
++option(OPENVFIFE_ENABLE_HARDENING "Enable project-local native hardening flags" ON)
++option(OPENVFIFE_ENABLE_SANITIZERS "Build project validation with ASan and UBSan" OFF)
++option(OPENVFIFE_WARNINGS_AS_ERRORS "Treat warnings as errors for openVFIFE-owned targets" ON)
++
++set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
++
++# R1 keeps the bundled Eigen 3.4.0 tree as the offline dependency baseline.
++# #47 will own final install/export mechanics; this interface target establishes
++# dependency ownership now without downloading or discovering packages at configure time.
++add_library(openvfife_eigen INTERFACE)
++add_library(openVFIFE::eigen ALIAS openvfife_eigen)
++target_include_directories(openvfife_eigen SYSTEM INTERFACE
++    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/headers>
++)
++
++set(OPENVFIFE_CORE_SOURCES
++    src/element.cpp
++    src/gridsection.cpp
++    src/integrator.cpp
++    src/material.cpp
++    src/particle.cpp
++    src/section.cpp
++    src/structsystem.cpp
++)
++
++add_library(openvfife STATIC ${OPENVFIFE_CORE_SOURCES})
++add_library(openVFIFE::openvfife ALIAS openvfife)
++
++target_compile_features(openvfife PUBLIC cxx_std_20)
++target_include_directories(openvfife PUBLIC
++    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/headers>
++)
++target_link_libraries(openvfife PUBLIC openVFIFE::eigen)
++
++function(openvfife_add_supported_compile_flag target flag variable_name)
++    check_cxx_compiler_flag("${flag}" "${variable_name}")
++    if(${variable_name})
++        target_compile_options(${target} PRIVATE "${flag}")
++    endif()
++endfunction()
++
++function(openvfife_apply_project_compile_options target)
++    if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
++        target_compile_options(${target} PRIVATE -Wall -Wextra -Wpedantic)
++        if(OPENVFIFE_WARNINGS_AS_ERRORS)
++            target_compile_options(${target} PRIVATE -Werror)
++        endif()
++
++        if(OPENVFIFE_ENABLE_SANITIZERS)
++            target_compile_options(${target} PRIVATE
++                -O1
++                -g
++                -fsanitize=address,undefined
++                -fno-omit-frame-pointer
++            )
++        elseif(OPENVFIFE_ENABLE_HARDENING AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
++            target_compile_definitions(${target} PRIVATE
++                $<$<NOT:$<CONFIG:Debug>>:_FORTIFY_SOURCE=3>
++            )
++            openvfife_add_supported_compile_flag(${target} -fstack-protector-strong OPENVFIFE_HAVE_STACK_PROTECTOR_STRONG)
++            openvfife_add_supported_compile_flag(${target} -fstack-clash-protection OPENVFIFE_HAVE_STACK_CLASH_PROTECTION)
++            openvfife_add_supported_compile_flag(${target} -ftrivial-auto-var-init=zero OPENVFIFE_HAVE_TRIVIAL_AUTO_VAR_INIT_ZERO)
++        endif()
++    elseif(MSVC)
++        target_compile_options(${target} PRIVATE /W4)
++        if(OPENVFIFE_WARNINGS_AS_ERRORS)
++            target_compile_options(${target} PRIVATE /WX)
++        endif()
++    endif()
++endfunction()
++
++function(openvfife_apply_sanitizer_link_options target)
++    if(OPENVFIFE_ENABLE_SANITIZERS AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
++        # Keep sanitizer linkage private to openVFIFE validation executables.
++        # It is intentionally not part of the public library usage requirements.
++        target_link_options(${target} PRIVATE -fsanitize=address,undefined)
++    endif()
++endfunction()
++
++openvfife_apply_project_compile_options(openvfife)
++
++if(BUILD_TESTING)
++    find_package(Python3 3.8 REQUIRED COMPONENTS Interpreter)
++
++    function(openvfife_add_test_executable target source)
++        add_executable(${target} ${source})
++        target_link_libraries(${target} PRIVATE openVFIFE::openvfife)
++        target_compile_features(${target} PRIVATE cxx_std_20)
++        openvfife_apply_project_compile_options(${target})
++        openvfife_apply_sanitizer_link_options(${target})
++    endfunction()
++
++    function(openvfife_register_native_test target)
++        add_test(NAME ${target} COMMAND ${target})
++        set_tests_properties(${target} PROPERTIES
++            WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
++            LABELS "native"
++        )
++    endfunction()
++
++    openvfife_add_test_executable(test_beam2d tests/test_beam2d.cpp)
++    openvfife_add_test_executable(test_beam3d tests/test_beam3d.cpp)
++    openvfife_add_test_executable(test_element tests/test_element.cpp)
++    openvfife_add_test_executable(test_gridsection tests/test_gridsection.cpp)
++    openvfife_add_test_executable(test_integrator tests/test_integrator.cpp)
++    openvfife_add_test_executable(test_material tests/test_material.cpp)
++    openvfife_add_test_executable(test_particle tests/test_particle.cpp)
++    openvfife_add_test_executable(test_section tests/test_section.cpp)
++    openvfife_add_test_executable(test_structsystem tests/test_structsystem.cpp)
++
++    # The native shim remains at its legacy path until #48, but it now consumes
++    # the canonical core target instead of recompiling the seven core sources.
++    add_library(openvfife_native_shim OBJECT wasm/vfife_shim.cpp)
++    target_link_libraries(openvfife_native_shim PRIVATE openVFIFE::openvfife)
++    target_compile_features(openvfife_native_shim PRIVATE cxx_std_20)
++    openvfife_apply_project_compile_options(openvfife_native_shim)
++
++    add_executable(test_shim
++        tests/test_shim.cpp
++        $<TARGET_OBJECTS:openvfife_native_shim>
++    )
++    target_link_libraries(test_shim PRIVATE openVFIFE::openvfife)
++    target_compile_features(test_shim PRIVATE cxx_std_20)
++    openvfife_apply_project_compile_options(test_shim)
++    openvfife_apply_sanitizer_link_options(test_shim)
++
++    openvfife_add_test_executable(fortran_parity_probe tests/fortran_parity_probe.cpp)
++    openvfife_add_test_executable(frame_progression_probe tests/frame_progression_probe.cpp)
++
++    foreach(test_target IN ITEMS
++        test_beam2d
++        test_beam3d
++        test_element
++        test_gridsection
++        test_integrator
++        test_material
++        test_particle
++        test_section
++        test_structsystem
++        test_shim
++    )
++        openvfife_register_native_test(${test_target})
++    endforeach()
++
++    set(OPENVFIFE_PARITY_OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/validation")
++
++    add_test(NAME fortran_parity
++        COMMAND ${CMAKE_COMMAND}
++            -DPROBE=$<TARGET_FILE:fortran_parity_probe>
++            -DOUTPUT=${OPENVFIFE_PARITY_OUTPUT_DIR}/fortran_parity_probe.csv
++            -DPYTHON=${Python3_EXECUTABLE}
++            -DCOMPARE=${CMAKE_CURRENT_SOURCE_DIR}/validation/fortran/golden/compare_cpp.py
++            -DSOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}
++            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunParityProbe.cmake
++    )
++    set_tests_properties(fortran_parity PROPERTIES LABELS "native;sanitizer")
++
++    add_test(NAME frame_progression_parity
++        COMMAND ${CMAKE_COMMAND}
++            -DPROBE=$<TARGET_FILE:frame_progression_probe>
++            -DOUTPUT=${OPENVFIFE_PARITY_OUTPUT_DIR}/frame_progression_probe.csv
++            -DPYTHON=${Python3_EXECUTABLE}
++            -DCOMPARE=${CMAKE_CURRENT_SOURCE_DIR}/validation/fortran/golden/compare_cpp.py
++            -DSOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}
++            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunParityProbe.cmake
++    )
++    set_tests_properties(frame_progression_parity PROPERTIES LABELS "native;sanitizer")
++
++    # Preserve the established fast sanitizer surface. Beam3D and the shim remain
++    # part of normal native validation but were not part of the pre-R1 sanitizer script.
++    foreach(sanitizer_test IN ITEMS
++        test_beam2d
++        test_element
++        test_gridsection
++        test_integrator
++        test_material
++        test_particle
++        test_section
++        test_structsystem
++    )
++        set_property(TEST ${sanitizer_test} APPEND PROPERTY LABELS sanitizer)
++    endforeach()
++
++    add_custom_target(openvfife_sanitizer_targets DEPENDS
++        openvfife
++        test_beam2d
++        test_element
++        test_gridsection
++        test_integrator
++        test_material
++        test_particle
++        test_section
++        test_structsystem
++        fortran_parity_probe
++        frame_progression_probe
++    )
++endif()
+diff --git a/cmake/RunParityProbe.cmake b/cmake/RunParityProbe.cmake
+new file mode 100644
+index 0000000..019195e
+--- /dev/null
++++ b/cmake/RunParityProbe.cmake
+@@ -0,0 +1,27 @@
++foreach(required_var IN ITEMS PROBE OUTPUT PYTHON COMPARE SOURCE_DIR)
++    if(NOT DEFINED ${required_var} OR "${${required_var}}" STREQUAL "")
++        message(FATAL_ERROR "RunParityProbe.cmake requires -D${required_var}=...")
++    endif()
++endforeach()
++
++get_filename_component(output_dir "${OUTPUT}" DIRECTORY)
++file(MAKE_DIRECTORY "${output_dir}")
++
++execute_process(
++    COMMAND "${PROBE}"
++    WORKING_DIRECTORY "${SOURCE_DIR}"
++    OUTPUT_FILE "${OUTPUT}"
++    RESULT_VARIABLE probe_result
++)
++if(NOT probe_result EQUAL 0)
++    message(FATAL_ERROR "Parity probe failed with exit code ${probe_result}")
++endif()
++
++execute_process(
++    COMMAND "${PYTHON}" "${COMPARE}" "${OUTPUT}"
++    WORKING_DIRECTORY "${SOURCE_DIR}"
++    RESULT_VARIABLE compare_result
++)
++if(NOT compare_result EQUAL 0)
++    message(FATAL_ERROR "Frozen C++/Fortran comparison failed with exit code ${compare_result}")
++endif()
+diff --git a/docs/native-build.md b/docs/native-build.md
+new file mode 100644
+index 0000000..50f7b3f
+--- /dev/null
++++ b/docs/native-build.md
+@@ -0,0 +1,92 @@
++# Native CMake build and validation
++
++R1 uses one canonical CMake library target for native development and validation:
++
++```cmake
++openVFIFE::openvfife
++```
++
++The concrete target is a static library named `openvfife`. Shared-library export
++and installed-package mechanics are intentionally deferred to the packaging work
++in #47.
++
++## Requirements
++
++- CMake 3.20 or newer.
++- A compiler with C++20 language support. The R1 implementation is validated with
++  GCC 14.2.0; GCC and Clang receive the project warning/hardening/sanitizer flags.
++- Python 3.8 or newer when `BUILD_TESTING=ON`, for the frozen Fortran comparisons.
++- No network access is required by configure or build. R1 uses the bundled Eigen
++  3.4.0 tree through the `openVFIFE::eigen` interface target.
++
++Project warning, hardening, `-Werror`, and sanitizer options are PRIVATE to
++openVFIFE-owned targets. They are not usage requirements imposed on downstream
++consumers.
++
++## Native validation
++
++The reproducible entry point is:
++
++```bash
++bash scripts/build_native_tests.sh
++```
++
++Equivalent explicit commands are:
++
++```bash
++cmake -S . -B build/native \
++  -DCMAKE_BUILD_TYPE=Release \
++  -DBUILD_TESTING=ON \
++  -DOPENVFIFE_ENABLE_SANITIZERS=OFF \
++  -DOPENVFIFE_ENABLE_HARDENING=ON
++cmake --build build/native --parallel
++ctest --test-dir build/native --output-on-failure -L native
++```
++
++Set `CXX` to select a compiler before the first configure. The wrapper also accepts
++`OPENVFIFE_BUILD_DIR` and `OPENVFIFE_BUILD_TYPE`.
++
++CTest runs the existing Beam2D/Beam3D, unit, shim, and both frozen parity checks.
++The parity probes write CSV under the configured build directory and compare it
++against the checked-in Fortran evidence; the comparison does not regenerate or
++change fixtures or tolerances.
++
++## ASan + UBSan validation
++
++The sanitizer configuration has its own build directory so the core library is
++compiled with instrumentation rather than reusing native objects:
++
++```bash
++bash scripts/build_native_sanitizers.sh
++```
++
++Equivalent explicit commands are:
++
++```bash
++cmake -S . -B build/sanitizers \
++  -DCMAKE_BUILD_TYPE=RelWithDebInfo \
++  -DBUILD_TESTING=ON \
++  -DOPENVFIFE_ENABLE_SANITIZERS=ON \
++  -DOPENVFIFE_ENABLE_HARDENING=OFF
++cmake --build build/sanitizers --parallel --target openvfife_sanitizer_targets
++ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 \
++UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 \
++ctest --test-dir build/sanitizers --output-on-failure -L sanitizer
++```
++
++`-fsanitize=address,undefined` is applied while compiling the `openvfife` core and
++validation objects, and again on validation executable link steps. The sanitizer
++label preserves the pre-CMake fast sanitizer surface: Beam2D, focused unit tests,
++and both frozen parity probes. Beam3D and the native shim remain part of normal
++native validation, matching the previous scripts.
++
++The wrapper accepts `OPENVFIFE_SANITIZER_BUILD_DIR` and
++`OPENVFIFE_SANITIZER_BUILD_TYPE`; `ASAN_OPTIONS` and `UBSAN_OPTIONS` remain
++overridable by the caller.
++
++## Build ownership
++
++The seven production `.cpp` files are listed once, on the `openvfife` target.
++Every native validation executable links `openVFIFE::openvfife`. The native shim is
++an object target that consumes the same library and no longer owns a duplicate core
++source list. The legacy Emscripten entry point is deliberately left for #48.
+diff --git a/scripts/build_native_sanitizers.sh b/scripts/build_native_sanitizers.sh
+index 057a7f2..cfd4bc5 100644
+--- a/scripts/build_native_sanitizers.sh
++++ b/scripts/build_native_sanitizers.sh
+@@ -1,66 +1,26 @@
+ #!/usr/bin/env bash
+-# Build the fast native validation surface with ASan + UBSan.
++# Configure, build, and run the established fast ASan + UBSan validation surface.
+ set -euo pipefail
+ cd "$(dirname "$0")/.."
+ 
+-CXX=${CXX:-g++}
+-CXXFLAGS=(
+-    -O1 -g -std=c++20
+-    -Wall -Wextra -Wpedantic -Werror
+-    -fsanitize=address,undefined
+-    -fno-omit-frame-pointer
+-    -I headers
+-)
+-LDFLAGS=(-fsanitize=address,undefined)
+-CORE_SOURCES=(
+-    src/element.cpp
+-    src/gridsection.cpp
+-    src/integrator.cpp
+-    src/material.cpp
+-    src/particle.cpp
+-    src/section.cpp
+-    src/structsystem.cpp
++BUILD_DIR=${OPENVFIFE_SANITIZER_BUILD_DIR:-build/sanitizers}
++BUILD_TYPE=${OPENVFIFE_SANITIZER_BUILD_TYPE:-RelWithDebInfo}
++
++cmake_args=(
++    -S .
++    -B "$BUILD_DIR"
++    -DCMAKE_BUILD_TYPE="$BUILD_TYPE"
++    -DBUILD_TESTING=ON
++    -DOPENVFIFE_ENABLE_SANITIZERS=ON
++    -DOPENVFIFE_ENABLE_HARDENING=OFF
+ )
++if [[ -n ${CXX:-} ]]; then
++    cmake_args+=("-DCMAKE_CXX_COMPILER=$CXX")
++fi
+ 
+-BUILD=build/sanitizers
+-mkdir -p "$BUILD/obj"
+-CORE_OBJECTS=()
+-for source in "${CORE_SOURCES[@]}"; do
+-    object="$BUILD/obj/$(basename "${source%.cpp}").o"
+-    "$CXX" "${CXXFLAGS[@]}" -c "$source" -o "$object"
+-    CORE_OBJECTS+=("$object")
+-done
+-
+-build_test() {
+-    local name=$1
+-    local source=$2
+-    "$CXX" "${CXXFLAGS[@]}" "${CORE_OBJECTS[@]}" "$source" \
+-        "${LDFLAGS[@]}" -o "$BUILD/$name"
+-}
+-
+-build_test test_beam2d tests/test_beam2d.cpp
+-build_test test_element tests/test_element.cpp
+-build_test test_gridsection tests/test_gridsection.cpp
+-build_test test_integrator tests/test_integrator.cpp
+-build_test test_material tests/test_material.cpp
+-build_test test_particle tests/test_particle.cpp
+-build_test test_section tests/test_section.cpp
+-build_test test_structsystem tests/test_structsystem.cpp
+-build_test fortran_parity_probe tests/fortran_parity_probe.cpp
+-build_test frame_progression_probe tests/frame_progression_probe.cpp
++cmake "${cmake_args[@]}"
++cmake --build "$BUILD_DIR" --parallel --target openvfife_sanitizer_targets
+ 
+ export ASAN_OPTIONS=${ASAN_OPTIONS:-detect_leaks=1:halt_on_error=1}
+ export UBSAN_OPTIONS=${UBSAN_OPTIONS:-halt_on_error=1:print_stacktrace=1}
+-
+-"$BUILD/test_beam2d"
+-"$BUILD/test_element"
+-"$BUILD/test_gridsection"
+-"$BUILD/test_integrator"
+-"$BUILD/test_material"
+-"$BUILD/test_particle"
+-"$BUILD/test_section"
+-"$BUILD/test_structsystem"
+-"$BUILD/fortran_parity_probe" > "$BUILD/fortran_parity_probe.csv"
+-python3 validation/fortran/golden/compare_cpp.py "$BUILD/fortran_parity_probe.csv"
+-"$BUILD/frame_progression_probe" > "$BUILD/frame_progression_probe.csv"
+-python3 validation/fortran/golden/compare_cpp.py "$BUILD/frame_progression_probe.csv"
++ctest --test-dir "$BUILD_DIR" --output-on-failure -L sanitizer
+diff --git a/scripts/build_native_tests.sh b/scripts/build_native_tests.sh
+index 423fde6..bdcd0ad 100755
+--- a/scripts/build_native_tests.sh
++++ b/scripts/build_native_tests.sh
+@@ -1,62 +1,23 @@
+ #!/usr/bin/env bash
+-# Build and run the native validation tests for the VFIFE core.
++# Configure, build, and run the native openVFIFE validation suite through CMake.
+ set -euo pipefail
+ cd "$(dirname "$0")/.."
+ 
+-CXX=${CXX:-g++}
+-CXXFLAGS=(
+-    -O2 -std=c++20
+-    -Wall -Wextra -Wpedantic -Werror
+-    -D_FORTIFY_SOURCE=3
+-    -fstack-protector-strong
+-    -fstack-clash-protection
+-    -ftrivial-auto-var-init=zero
+-    -I headers
+-)
+-CORE_SOURCES=(
+-    src/element.cpp
+-    src/gridsection.cpp
+-    src/integrator.cpp
+-    src/material.cpp
+-    src/particle.cpp
+-    src/section.cpp
+-    src/structsystem.cpp
++BUILD_DIR=${OPENVFIFE_BUILD_DIR:-build/native}
++BUILD_TYPE=${OPENVFIFE_BUILD_TYPE:-Release}
++
++cmake_args=(
++    -S .
++    -B "$BUILD_DIR"
++    -DCMAKE_BUILD_TYPE="$BUILD_TYPE"
++    -DBUILD_TESTING=ON
++    -DOPENVFIFE_ENABLE_SANITIZERS=OFF
++    -DOPENVFIFE_ENABLE_HARDENING=ON
+ )
++if [[ -n ${CXX:-} ]]; then
++    cmake_args+=("-DCMAKE_CXX_COMPILER=$CXX")
++fi
+ 
+-mkdir -p build/obj
+-CORE_OBJECTS=()
+-for source in "${CORE_SOURCES[@]}"; do
+-    object="build/obj/$(basename "${source%.cpp}").o"
+-    "$CXX" "${CXXFLAGS[@]}" -c "$source" -o "$object"
+-    CORE_OBJECTS+=("$object")
+-done
+-
+-"$CXX" "${CXXFLAGS[@]}" "${CORE_OBJECTS[@]}" tests/test_beam2d.cpp -o build/test_beam2d
+-"$CXX" "${CXXFLAGS[@]}" -c wasm/vfife_shim.cpp -o build/obj/vfife_shim.o
+-"$CXX" "${CXXFLAGS[@]}" "${CORE_OBJECTS[@]}" build/obj/vfife_shim.o \
+-    tests/test_shim.cpp -o build/test_shim
+-"$CXX" "${CXXFLAGS[@]}" "${CORE_OBJECTS[@]}" tests/test_beam3d.cpp -o build/test_beam3d
+-"$CXX" "${CXXFLAGS[@]}" "${CORE_OBJECTS[@]}" tests/test_element.cpp -o build/test_element
+-"$CXX" "${CXXFLAGS[@]}" "${CORE_OBJECTS[@]}" tests/test_gridsection.cpp -o build/test_gridsection
+-"$CXX" "${CXXFLAGS[@]}" "${CORE_OBJECTS[@]}" tests/test_integrator.cpp -o build/test_integrator
+-"$CXX" "${CXXFLAGS[@]}" "${CORE_OBJECTS[@]}" tests/test_material.cpp -o build/test_material
+-"$CXX" "${CXXFLAGS[@]}" "${CORE_OBJECTS[@]}" tests/test_particle.cpp -o build/test_particle
+-"$CXX" "${CXXFLAGS[@]}" "${CORE_OBJECTS[@]}" tests/test_section.cpp -o build/test_section
+-"$CXX" "${CXXFLAGS[@]}" "${CORE_OBJECTS[@]}" tests/test_structsystem.cpp -o build/test_structsystem
+-"$CXX" "${CXXFLAGS[@]}" "${CORE_OBJECTS[@]}" tests/fortran_parity_probe.cpp -o build/fortran_parity_probe
+-"$CXX" "${CXXFLAGS[@]}" "${CORE_OBJECTS[@]}" tests/frame_progression_probe.cpp -o build/frame_progression_probe
+-
+-./build/test_beam2d
+-./build/fortran_parity_probe > build/fortran_parity_probe.csv
+-python3 validation/fortran/golden/compare_cpp.py build/fortran_parity_probe.csv
+-./build/frame_progression_probe > build/frame_progression_probe.csv
+-python3 validation/fortran/golden/compare_cpp.py build/frame_progression_probe.csv
+-./build/test_beam3d
+-./build/test_element
+-./build/test_gridsection
+-./build/test_integrator
+-./build/test_material
+-./build/test_particle
+-./build/test_section
+-./build/test_structsystem
+-./build/test_shim
++cmake "${cmake_args[@]}"
++cmake --build "$BUILD_DIR" --parallel
++ctest --test-dir "$BUILD_DIR" --output-on-failure -L native
