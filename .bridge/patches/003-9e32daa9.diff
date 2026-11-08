@@ -1,0 +1,433 @@
+diff --git a/docs/architecture/adr-0001-r1-library-boundaries.md b/docs/architecture/adr-0001-r1-library-boundaries.md
+index 999e30f..dc2e739 100644
+--- a/docs/architecture/adr-0001-r1-library-boundaries.md
++++ b/docs/architecture/adr-0001-r1-library-boundaries.md
+@@ -32,7 +32,7 @@ first file/namespace move.
+ 
+ ### 1. One public namespace and one compiled library
+ 
+-All supported public C++ declarations will live in the single namespace
++All installed C++ declarations, whether supported or explicitly experimental, will live in the single namespace
+ `openvfife`. Folder names are organizational boundaries, not nested C++
+ namespaces. R1 does **not** introduce `openvfife::element`,
+ `openvfife::solver`, or similar namespace layers.
+@@ -50,25 +50,32 @@ without improving correctness.
+ 
+ ### 2. Public include layout
+ 
+-The first structural move will use these concept folders:
++The first structural move uses the same concept folders, but the installed header
++surface is split by capability status so the supported umbrella cannot expose
++experimental or unimplemented declarations transitively:
+ 
+ ```text
+ include/
+   openvfife/
+     core/
++      types.hpp                  # StdArray3d/6d/6b supported aliases
+       particle.hpp
+     numerics/
+       quadrature.hpp
+     material/
+-      material.hpp
++      uniaxial.hpp               # supported material/state surface
++      experimental.hpp           # UniIdeal, UniPower; explicit opt-in only
+     section/
+-      section.hpp
+-      grid_section.hpp        # experimental surface; not in umbrella initially
++      section.hpp                # supported BaseSection/CustomSection/Rectangle surface
++      experimental.hpp           # Ctube, AngleSteel; explicit opt-in only
++      grid_section.hpp           # experimental direct include
+     element/
+-      element.hpp
++      base.hpp                   # supported result records + BaseElement/StructElement
++      frame.hpp                  # supported Link2D/Beam2D/Beam3D families
++      experimental.hpp           # experimental links + Plane/Solid scaffolding
+     solver/
+       struct_system.hpp
+-    openvfife.hpp             # small supported umbrella only
++    openvfife.hpp                # small supported-only umbrella
+ src/
+   core/particle.cpp
+   numerics/quadrature.cpp
+@@ -77,31 +84,64 @@ src/
+   section/grid_section.cpp
+   element/element.cpp
+   solver/struct_system.cpp
+-  io/                         # implementation/adapters introduced only when #46 needs them
++  io/                            # writer/filesystem helpers extracted by #46
+ bindings/
+   wasm/vfife_shim.cpp
++examples/
++  support/
++    config.hpp                   # support-only; never installed as library API
+ ```
+ 
+-No empty public `io/` framework is created merely to satisfy a diagram. The
+-legacy `Config` utility is internal and is moved under `src/io/` when its ODR
+-hazard is corrected in #46. Public I/O headers are added only if #46 identifies
+-a supported consumer contract.
++The header split is a capability boundary, not a one-class-per-file rule. The
++implementation can remain in coherent compiled translation units such as
++`src/material/material.cpp` and `src/element/element.cpp` during R1.
+ 
+-The optional umbrella header will initially include only supported public
+-families:
++No empty public `io/` framework is created merely to satisfy a diagram. #46 moves
++CSV/filesystem implementation helpers out of the solver into `src/io/` while
++retaining the current `StructSystem::save*` compatibility facade. The legacy
++`Config` utility follows #46's separate support-only path:
++`examples/support/config.hpp`, excluded from installation and the umbrella, with
++its ordinary non-template header definitions made `inline` so a two-translation-
++unit example can link legally. `Config` is not moved into `src/io/`.
++
++The optional umbrella header initially includes only the supported header closure:
+ 
+ ```cpp
++#include <openvfife/core/types.hpp>
+ #include <openvfife/core/particle.hpp>
+ #include <openvfife/numerics/quadrature.hpp>
+-#include <openvfife/material/material.hpp>
++#include <openvfife/material/uniaxial.hpp>
+ #include <openvfife/section/section.hpp>
+-#include <openvfife/element/element.hpp>
++#include <openvfife/element/base.hpp>
++#include <openvfife/element/frame.hpp>
+ #include <openvfife/solver/struct_system.hpp>
+ ```
+ 
+-`section/grid_section.hpp` remains directly includable for experimental users but
+-is intentionally omitted from the supported umbrella until an integrated element
+-family consumes it with adequate verification.
++The supported headers form a closed include surface. In particular,
++`solver/struct_system.hpp` may include `core/particle.hpp` plus the supported
++base headers it needs (`material/uniaxial.hpp`, `section/section.hpp`,
++`element/base.hpp`), or use forward declarations where practical; it must not
++transitively include `material/experimental.hpp`,
++`section/experimental.hpp`, `section/grid_section.hpp`, or
++`element/experimental.hpp`. Type-specific frame implementation dependencies
++belong in `src/solver/struct_system.cpp`, not in the solver public header.
++
++Experimental declarations remain available only through explicit opt-in includes:
++
++```cpp
++#include <openvfife/material/experimental.hpp>
++#include <openvfife/section/experimental.hpp>
++#include <openvfife/section/grid_section.hpp>
++#include <openvfife/element/experimental.hpp>
++```
++
++#42 must add an include-surface check, not rely on table labels alone. A compile-only
++TU including `<openvfife/openvfife.hpp>` and another including only
++`<openvfife/solver/struct_system.hpp>` must emit compiler dependency files that
++contain none of the four experimental headers above or
++`examples/support/config.hpp`. Separate explicit-opt-in TUs should include each
++experimental header and reference a representative experimental type to prove
++those APIs are still intentionally reachable when requested.
+ 
+ ### 3. Dependency direction
+ 
+@@ -123,7 +163,7 @@ flowchart LR
+   solver --> material
+   solver --> section
+   solver --> element
+-  io[io adapters/internal config] --> solver
++  io[io adapters] --> solver
+   wasm[bindings/wasm] --> solver
+   wasm --> element
+ ```
+@@ -142,6 +182,13 @@ The corresponding rules are:
+ | `io` | stable library read/query surface as needed | bindings, UI |
+ | `bindings/wasm` | public/core library API | UI implementation details |
+ 
++Supported public headers may depend only on other supported public headers (and
++required third-party dependencies such as Eigen). Experimental headers may depend
++inward on supported headers, but the supported closure must never include an
++experimental header. `examples/support/config.hpp` is outside this library graph;
++it may use the standard library but must not become a dependency of the numerical
++core or installed package.
++
+ The current `element.h` includes `gridsection.h` and `integrator.h` even though the
+ modern branch no longer contains the old plastic-beam classes that required them.
+ #42 should remove such accidental transitive includes while preserving behavior.
+diff --git a/docs/architecture/r1-capability-inventory.md b/docs/architecture/r1-capability-inventory.md
+index 947ddb0..974aa48 100644
+--- a/docs/architecture/r1-capability-inventory.md
++++ b/docs/architecture/r1-capability-inventory.md
+@@ -21,28 +21,37 @@ while a shear-center property is explicitly unavailable.
+ ## Production header inventory
+ 
+ Every non-Eigen production header on the modern baseline has a destination and a
+-public/internal decision below.
++public/internal decision below. Public fixed-size `typedef`/`using` aliases are
++inventoried alongside classes, structs, enums, and functions; declaration coverage
++must not ignore aliases.
+ 
+ | Current header | Types / functions | R1 status | Public? | First R1 destination | Evidence and limits |
+ | --- | --- | --- | --- | --- | --- |
+-| `headers/particle.h` | `Dof`, `DOF`, `Mass`, `Particle` | Supported | Yes | `include/openvfife/core/particle.hpp` | `tests/test_particle.cpp`; exercised by all frame, oracle, and shim tests. Six storage slots are not six mandatory active DOFs. Translation mass-matrix time integration is explicitly rejected; invertible rotational inertia is supported. |
+-| `headers/material.h` | `UniaxialMaterialState`, `BaseMaterial`, `LinearElastic`, `UniaxialPlastic`, `UniIdeal`, `UniBilinear`, `UniPower` | Mixed; see type table | Yes, except unsupported behavior is documented | `include/openvfife/material/material.hpp` | `tests/test_material.cpp`; `UniPower` has a known constitutive TODO and is not promoted as supported. The common contract is uniaxial, not a generic continuum law. |
+-| `headers/section.h` | `BaseSection`, `CustomSectionParas`, `CustomSection`, `Ctube`, `AngleSteel`, `Rectangle` | Mixed; see type table | Yes | `include/openvfife/section/section.hpp` | Beam/oracle tests rely heavily on `CustomSection`; section-specific evidence varies. Calculated shear center is unavailable for `Ctube`, `AngleSteel`, and `Rectangle` and currently becomes zero after a diagnostic. |
++| `headers/particle.h` | `StdArray6d`, `StdArray6b`, `Dof`, `DOF`, `Mass`, `Particle` | Supported | Yes | aliases → `include/openvfife/core/types.hpp`; particle/DOF/mass → `include/openvfife/core/particle.hpp` | `tests/test_particle.cpp`; exercised by all frame, oracle, and shim tests. Six storage slots are not six mandatory active DOFs. Translation mass-matrix time integration is explicitly rejected; invertible rotational inertia is supported. |
++| `headers/material.h` | `UniaxialMaterialState`, `BaseMaterial`, `LinearElastic`, `UniaxialPlastic`, `UniIdeal`, `UniBilinear`, `UniPower` | Mixed; see type table | Yes; experimental declarations require explicit include | supported → `include/openvfife/material/uniaxial.hpp`; `UniIdeal`/`UniPower` → `include/openvfife/material/experimental.hpp` | `tests/test_material.cpp`; `UniPower` has a known constitutive TODO and is not promoted as supported. The common contract is uniaxial, not a generic continuum law. |
++| `headers/section.h` | `BaseSection`, `CustomSectionParas`, `CustomSection`, `Ctube`, `AngleSteel`, `Rectangle` | Mixed; see type table | Yes; experimental declarations require explicit include | supported → `include/openvfife/section/section.hpp`; `Ctube`/`AngleSteel` → `include/openvfife/section/experimental.hpp` | Beam/oracle tests rely heavily on `CustomSection`; section-specific evidence varies. Calculated shear center is unavailable for `Ctube`, `AngleSteel`, and `Rectangle` and currently becomes zero after a diagnostic. |
+ | `headers/integrator.h` | `BaseIntegrator`, `GaussLegendre`, `GaussLobatto` | Supported spatial quadrature | Yes | `include/openvfife/numerics/quadrature.hpp` | `tests/test_integrator.cpp` covers constant 1D/2D/3D integration, order bounds, invalid inputs, and index errors. This is spatial quadrature, not time stepping. |
+ | `headers/gridsection.h` | `SectionPoint`, `CellNodes`, `SectionGridParameter`, `SectionCell`, `SectionResponse`, `SectionGrid`, `RectangleGrid`, `AngleSteelGrid`, `CreateGrid` | Experimental | Yes, experimental direct include; omit from initial umbrella | `include/openvfife/section/grid_section.hpp` | `tests/test_gridsection.cpp` unit-tests cells, response, damage, rectangle grids, factory errors, and deferred material assignment. No current production element consumes this subsystem after the plastic-beam classes were removed; valid `AngleSteelGrid` behavior is not directly regression-tested. |
+-| `headers/element.h` | `Strain`, `Stress`, `ElementForce`, `BaseElement`, `StructElement`, `PlaneElement`, `SolidElement`, `Link2D`, `Link2DLD`, `Link3D`, `Link3DLD`, `Beam2D`, `Beam3D` | Mixed; see type table | Supported/experimental types public; stubs not documented as usable | `include/openvfife/element/element.hpp` | Direct element invariants, closed-form beams, frozen oracle, and shim regressions exist for only a subset. Common-base section/topology contracts are fixed in #43. |
++| `headers/element.h` | `StdArray3d`, `Strain`, `Stress`, `ElementForce`, `BaseElement`, `StructElement`, `PlaneElement`, `SolidElement`, `Link2D`, `Link2DLD`, `Link3D`, `Link3DLD`, `Beam2D`, `Beam3D` | Mixed; see type table | Supported/experimental types public; stubs not documented as usable | `StdArray3d` → `include/openvfife/core/types.hpp`; supported common → `include/openvfife/element/base.hpp`; supported frame → `include/openvfife/element/frame.hpp`; experimental/stubs → `include/openvfife/element/experimental.hpp` | Direct element invariants, closed-form beams, frozen oracle, and shim regressions exist for only a subset. Common-base section/topology contracts are fixed in #43. |
+ | `headers/structsystem.h` | `StructSystem`; `isFileExists`, `isDirExists`, `makedir` | `StructSystem`: Supported; file helpers: Internal | `StructSystem`: Yes; helpers: No | `include/openvfife/solver/struct_system.hpp`; file helpers move behind `src/io/` implementation | `tests/test_structsystem.cpp`, frame tests, frozen oracle, shim tests. #44 still has to enforce same-system membership/checked removal. Filesystem helpers are implementation detail, not library API. |
+-| `headers/config.hpp` | `Config` and stream/template helpers | Internal legacy | No | `src/io/config.hpp` + implementation after #46 | No current production/test caller. Ordinary non-inline definitions in the header create a multi-TU ODR hazard. #46 decides whether to retain the utility internally or replace it; it is not installed as-is. |
++| `headers/config.hpp` | `Config` and stream/template helpers | Internal example/support utility | No | `examples/support/config.hpp` after #46 | No installed-library caller. #46 keeps the utility support-only, makes ordinary non-template header definitions `inline`, updates any callers, and proves two-TU example use. It is excluded from installation/umbrella and does not belong in `src/io/`. |
+ 
+ The bundled `headers/Eigen/` tree is third-party Eigen 3.4.0, not openVFIFE API.
+ #47 owns its relocatable export/install treatment.
+ 
++The supported umbrella and `solver/struct_system.hpp` must have a supported-only
++transitive include closure. `material/experimental.hpp`, `section/experimental.hpp`,
++`section/grid_section.hpp`, `element/experimental.hpp`, and the support-only Config
++header are explicit opt-ins and must not appear in compiler dependency output for
++those supported includes.
++
+ ## Type-level capability inventory
+ 
+ ### Core
+ 
+ | Type/capability | Status | Evidence / boundary |
+ | --- | --- | --- |
++| `StdArray6d`, `StdArray6b`, `StdArray3d` | Supported public aliases | Fixed-size `std::array` spellings used by public particle/element signatures; all three move to `openvfife` in `core/types.hpp`. The aliases are part of the R1 source API and are not silently retired. |
+ | `Dof`, `DOF` | Supported | Typed DOF activation and constraint use are covered by `test_particle`, `test_structsystem`, beams and shim tests. |
+ | `Mass` lumped mass | Supported | Positive/non-negative invariants and solver use covered by `test_particle` and element/system regressions. |
+ | `Mass::rotation_mass_matrix` | Supported with constraint | `Particle` accepts it only when invertible for the active rotational solve; frozen integration probes exercise rotational inertia. |
+@@ -59,7 +68,7 @@ The bundled `headers/Eigen/` tree is third-party Eigen 3.4.0, not openVFIFE API.
+ | `UniaxialPlastic` | Supported as abstract uniaxial base | Used by concrete plastic material classes; not itself constructible. |
+ | `UniBilinear` | Supported for tested uniaxial response | `test_material` covers elastic step, plastic return, unload state and parameter validation; WASM exposes it. |
+ | `UniIdeal` | Experimental | Constructor/invariant rejection is tested, but no constitutive history regression establishes its numerical response. |
+-| `UniPower` | Experimental / known numerical gap | Constructor invariants are tested, but `headers/material.h` still records that the constitutive update is not correct because last yield strain is not retained. R1 must not present it as verified. Repair is outside R1 completion. |
++| `UniPower` | Experimental / known numerical gap; inventory-only, not in supported capability surface | Constructor invariants are tested, but `headers/material.h` still records that the constitutive update is not correct because last yield strain is not retained. R1 must not present it as verified. Repair is outside R1 completion. |
+ 
+ ### Sections
+ 
+@@ -110,7 +119,7 @@ The bundled `headers/Eigen/` tree is third-party Eigen 3.4.0, not openVFIFE API.
+ | Element kill/free-particle ownership transfer | Existing behavior, further hardening pending | Ownership containers preserve lifetime; #44 owns checked removal/membership rules. |
+ | CSV/model filesystem writers on `StructSystem` | Supported legacy behavior, architecturally coupled | R1 preserves output schemas. #46 isolates I/O without changing schemas. |
+ | `isFileExists`, `isDirExists`, `makedir` | Internal | Tested as filesystem helpers but not retained as installed public API. |
+-| `Config` | Internal legacy / unsafe to export as-is | Header-defined ordinary functions create ODR risk; no production caller evidence. |
++| `Config` | Internal example/support utility | Not installed or included by the umbrella. #46 relocates it to `examples/support/config.hpp`, makes ordinary non-template definitions `inline`, and validates two-TU example use. |
+ 
+ ## Existing validation evidence on the modern baseline
+ 
+diff --git a/docs/architecture/r1-migration-map.md b/docs/architecture/r1-migration-map.md
+index d34cbd3..f46e968 100644
+--- a/docs/architecture/r1-migration-map.md
++++ b/docs/architecture/r1-migration-map.md
+@@ -23,27 +23,46 @@ belong so #41/#42 can execute without redesigning the API during mechanical edit
+ 
+ ## Header and source destination map
+ 
+-| Current header | Current source | Destination public header | Destination implementation | Public status |
++| Current header | Current source | Destination public/support header | Destination implementation | Public status |
+ | --- | --- | --- | --- | --- |
+-| `headers/particle.h` | `src/particle.cpp` | `include/openvfife/core/particle.hpp` | `src/core/particle.cpp` | Supported public |
+-| `headers/material.h` | `src/material.cpp` | `include/openvfife/material/material.hpp` | `src/material/material.cpp` | Mixed supported/experimental public; capability table governs |
+-| `headers/section.h` | `src/section.cpp` | `include/openvfife/section/section.hpp` | `src/section/section.cpp` | Mixed supported/experimental public; capability table governs |
++| `headers/particle.h` | `src/particle.cpp` | aliases → `include/openvfife/core/types.hpp`; particle/DOF/mass → `include/openvfife/core/particle.hpp` | `src/core/particle.cpp` | Supported public |
++| `headers/material.h` | `src/material.cpp` | supported → `include/openvfife/material/uniaxial.hpp`; experimental → `include/openvfife/material/experimental.hpp` | `src/material/material.cpp` | Supported header + explicit experimental opt-in |
++| `headers/section.h` | `src/section.cpp` | supported → `include/openvfife/section/section.hpp`; experimental → `include/openvfife/section/experimental.hpp` | `src/section/section.cpp` | Supported header + explicit experimental opt-in |
+ | `headers/integrator.h` | `src/integrator.cpp` | `include/openvfife/numerics/quadrature.hpp` | `src/numerics/quadrature.cpp` | Supported public |
+-| `headers/gridsection.h` | `src/gridsection.cpp` | `include/openvfife/section/grid_section.hpp` | `src/section/grid_section.cpp` | Experimental public; direct include only initially |
+-| `headers/element.h` | `src/element.cpp` | `include/openvfife/element/element.hpp` | `src/element/element.cpp` | Mixed supported/experimental/unimplemented; capability table governs |
+-| `headers/structsystem.h` | `src/structsystem.cpp` | `include/openvfife/solver/struct_system.hpp` | `src/solver/struct_system.cpp` | `StructSystem` supported public; filesystem helpers become internal |
+-| `headers/config.hpp` | header-only ordinary definitions | **No installed public header in R1 as-is** | `src/io/config.hpp` plus `.cpp` if retained by #46 | Internal legacy |
++| `headers/gridsection.h` | `src/gridsection.cpp` | `include/openvfife/section/grid_section.hpp` | `src/section/grid_section.cpp` | Experimental public; direct include only |
++| `headers/element.h` | `src/element.cpp` | alias → `include/openvfife/core/types.hpp`; supported common → `include/openvfife/element/base.hpp`; supported frame → `include/openvfife/element/frame.hpp`; experimental/stubs → `include/openvfife/element/experimental.hpp` | `src/element/element.cpp` | Supported headers + explicit experimental opt-in |
++| `headers/structsystem.h` | `src/structsystem.cpp` | `include/openvfife/solver/struct_system.hpp` | `src/solver/struct_system.cpp` | `StructSystem` supported public; filesystem helpers internal |
++| `headers/config.hpp` | header-only ordinary/template definitions | `examples/support/config.hpp` (**not installed**) | header-only support utility; #46 makes ordinary non-template definitions `inline` | Internal example/support only |
+ | n/a | `wasm/vfife_shim.cpp` | n/a | `bindings/wasm/vfife_shim.cpp` | Binding/internal C++ implementation; exported C ABI handled by #48 |
+ 
+-The mapping intentionally keeps coherent historical declarations together for the
+-first move. R1 does not mechanically split every class into a separate file.
+-Further splits are justified only by dependency or consumer needs.
++The mapping intentionally splits headers where capability status requires an actual
++include boundary, but it does not mechanically create one file per class. Material,
++section, and element implementations may remain in coherent compiled translation
++units during R1.
++
++The supported include closure is normative: `openvfife.hpp` includes only
++`core/types.hpp`, `core/particle.hpp`, `numerics/quadrature.hpp`,
++`material/uniaxial.hpp`, `section/section.hpp`, `element/base.hpp`,
++`element/frame.hpp`, and `solver/struct_system.hpp`. The solver header must not
++transitively include any experimental header or the support-only Config header.
+ 
+ ## Type map
+ 
+ All public entries below acquire the `openvfife::` qualifier. Names otherwise
+ remain unchanged.
+ 
++### Fixed-size public aliases → `<openvfife/core/types.hpp>`
++
++| Current spelling | R1 spelling | Status |
++| --- | --- | --- |
++| `StdArray6d` (`headers/particle.h`) | `openvfife::StdArray6d` | Supported public alias; retain `std::array<double, 6>` spelling |
++| `StdArray6b` (`headers/particle.h`) | `openvfife::StdArray6b` | Supported public alias; retain `std::array<bool, 6>` spelling |
++| `StdArray3d` (`headers/element.h`) | `openvfife::StdArray3d` | Supported public alias; retain `std::array<double, 3>` spelling |
++
++These aliases are used in public signatures and remain source-visible API names.
++#42 moves them together into the low-dependency `core/types.hpp`; they are not
++left global or silently replaced by unnamed `std::array` spellings.
++
+ ### `headers/particle.h` → `<openvfife/core/particle.hpp>`
+ 
+ | Current spelling | R1 spelling | Status |
+@@ -53,7 +72,7 @@ remain unchanged.
+ | `Mass` | `openvfife::Mass` | Supported with capability limits |
+ | `Particle` | `openvfife::Particle` | Supported |
+ 
+-### `headers/material.h` → `<openvfife/material/material.hpp>`
++### Supported material declarations → `<openvfife/material/uniaxial.hpp>`
+ 
+ | Current spelling | R1 spelling | Status |
+ | --- | --- | --- |
+@@ -61,21 +80,39 @@ remain unchanged.
+ | `BaseMaterial` | `openvfife::BaseMaterial` | Supported uniaxial base |
+ | `LinearElastic` | `openvfife::LinearElastic` | Supported |
+ | `UniaxialPlastic` | `openvfife::UniaxialPlastic` | Supported abstract uniaxial base |
+-| `UniIdeal` | `openvfife::UniIdeal` | Experimental |
+ | `UniBilinear` | `openvfife::UniBilinear` | Supported for tested uniaxial response |
+-| `UniPower` | `openvfife::UniPower` | Experimental; known numerical gap |
+ 
+-### `headers/section.h` → `<openvfife/section/section.hpp>`
++### Experimental material declarations → `<openvfife/material/experimental.hpp>`
++
++| Current spelling | R1 spelling | Status |
++| --- | --- | --- |
++| `UniIdeal` | `openvfife::UniIdeal` | Experimental; explicit include only |
++| `UniPower` | `openvfife::UniPower` | Experimental/unsupported execution path; known numerical gap; explicit include only |
++
++`material/experimental.hpp` may include `material/uniaxial.hpp`; the reverse
++dependency is forbidden. `UniPower` is therefore absent from the supported
++umbrella and from the transitive include closure of supported headers.
++
++### Supported section declarations → `<openvfife/section/section.hpp>`
+ 
+ | Current spelling | R1 spelling | Status |
+ | --- | --- | --- |
+ | `BaseSection` | `openvfife::BaseSection` | Supported base |
+ | `CustomSectionParas` | `openvfife::CustomSectionParas` | Supported |
+ | `CustomSection` | `openvfife::CustomSection` | Supported |
+-| `Ctube` | `openvfife::Ctube` | Experimental |
+-| `AngleSteel` | `openvfife::AngleSteel` | Experimental/partial |
+ | `Rectangle` | `openvfife::Rectangle` | Supported for stated geometry/grid scope |
+ 
++### Experimental section declarations → `<openvfife/section/experimental.hpp>`
++
++| Current spelling | R1 spelling | Status |
++| --- | --- | --- |
++| `Ctube` | `openvfife::Ctube` | Experimental; explicit include only |
++| `AngleSteel` | `openvfife::AngleSteel` | Experimental/partial; explicit include only |
++
++`section/experimental.hpp` may include the supported section base; supported
++headers do not include it. `section/grid_section.hpp` remains a separate explicit
++experimental include.
++
+ ### `headers/integrator.h` → `<openvfife/numerics/quadrature.hpp>`
+ 
+ | Current spelling | R1 spelling | Status |
+@@ -105,7 +142,7 @@ This header is not in the initial supported umbrella. It remains available for
+ explicit experimental use while #51 records the continuum/section integration
+ boundary.
+ 
+-### `headers/element.h` → `<openvfife/element/element.hpp>`
++### Supported common element declarations → `<openvfife/element/base.hpp>`
+ 
+ | Current spelling | R1 spelling | Status |
+ | --- | --- | --- |
+@@ -114,15 +151,29 @@ boundary.
+ | `ElementForce` | `openvfife::ElementForce` | Supported for current frame/link output contract |
+ | `BaseElement` | `openvfife::BaseElement` | Supported base; #43 contract refinement pending |
+ | `StructElement` | `openvfife::StructElement` | Supported structural base |
+-| `PlaneElement` | `openvfife::PlaneElement` | Unimplemented scaffolding; not documented as usable |
+-| `SolidElement` | `openvfife::SolidElement` | Unimplemented scaffolding; not documented as usable |
++
++### Supported frame declarations → `<openvfife/element/frame.hpp>`
++
++| Current spelling | R1 spelling | Status |
++| --- | --- | --- |
+ | `Link2D` | `openvfife::Link2D` | Supported |
+-| `Link2DLD` | `openvfife::Link2DLD` | Experimental |
+-| `Link3D` | `openvfife::Link3D` | Experimental |
+-| `Link3DLD` | `openvfife::Link3DLD` | Experimental |
+ | `Beam2D` | `openvfife::Beam2D` | Supported |
+ | `Beam3D` | `openvfife::Beam3D` | Supported |
+ 
++### Experimental/unimplemented element declarations → `<openvfife/element/experimental.hpp>`
++
++| Current spelling | R1 spelling | Status |
++| --- | --- | --- |
++| `PlaneElement` | `openvfife::PlaneElement` | Unimplemented scaffolding; explicit include only and not documented as usable |
++| `SolidElement` | `openvfife::SolidElement` | Unimplemented scaffolding; explicit include only and not documented as usable |
++| `Link2DLD` | `openvfife::Link2DLD` | Experimental; explicit include only |
++| `Link3D` | `openvfife::Link3D` | Experimental; explicit include only |
++| `Link3DLD` | `openvfife::Link3DLD` | Experimental; explicit include only |
++
++`element/frame.hpp` may include `element/base.hpp` and supported
++material/section headers. `element/experimental.hpp` may depend on supported
++headers, but no supported header may include `element/experimental.hpp`.
++
+ `ShellTri3` and `SolidTet4` do **not** appear in this migration table because they
+ are not on the modern baseline. They remain separately inventoried feature-branch
+ work until #43/#45/#51 define an accepted integration path.
+@@ -136,17 +187,24 @@ work until #43/#45/#51 define an accepted integration path.
+ | `isDirExists` | no installed public symbol | Internal filesystem helper |
+ | `makedir` | no installed public symbol | Internal filesystem helper |
+ 
+-#46 may move writer/configuration helpers behind an I/O adapter. It must preserve
++#46 moves CSV/filesystem writer helpers behind an internal I/O adapter while preserving
+ existing supported output schemas unless an explicit migration is separately
+-approved.
++approved. `solver/struct_system.hpp` itself must expose only the supported base
++header closure; frame-specific implementation includes belong in
++`src/solver/struct_system.cpp`.
+ 
+-### `headers/config.hpp`
++### `headers/config.hpp` → `examples/support/config.hpp` (not installed)
+ 
+-`Config` is **not** included in the installed public API during R1. The current
+-header defines ordinary non-inline functions and stream operators, so including it
+-from multiple translation units risks ODR/multiple-definition failures. #46 owns
+-splitting definitions into implementation code or removing/replacing the legacy
+-utility if it remains unused.
++`Config` is **not** part of the installed public API. #46 relocates it to the
++example/support area, updates every caller, and keeps it header-only for support
++use. Its existing ordinary non-template definitions and stream operators must be
++made `inline` (templates remain in the header) so two translation units can include
++it and link without ODR violations.
++
++This support header is excluded from `openvfife.hpp`, the installed header set,
++and numerical-core dependencies. `src/io/` is reserved for actual
++CSV/filesystem writer helpers extracted from `StructSystem`; it does not own
++`Config`. #46 must validate the support utility with a two-TU example/test.
+ 
+ ## Include migration examples
+ 
+@@ -163,7 +221,7 @@ LinearElastic steel(1);
+ ### After #42
+ 
+ ```cpp
+-#include <openvfife/material/material.hpp>
++#include <openvfife/material/uniaxial.hpp>
+ #include <openvfife/solver/struct_system.hpp>
+ 
+ openvfife::StructSystem system(1);
+@@ -222,4 +280,11 @@ issues must prove, at one exact SHA:
+ 5. native fixtures, 183-value and 309-value frozen parity, and ASan/UBSan stay
+    green;
+ 6. WASM is freshly rebuilt from the canonical target and worker smoke checks pass;
+-7. documented examples compile against the new public include prefix.
++7. documented examples compile against the new public include prefix;
++8. compiler dependency output for `openvfife/openvfife.hpp` and
++   `solver/struct_system.hpp` contains no `material/experimental.hpp`,
++   `section/experimental.hpp`, `section/grid_section.hpp`,
++   `element/experimental.hpp`, or support-only Config header;
++9. explicit-opt-in TUs compile when each experimental header is included directly;
++10. #46's two-TU Config support example links and executes while the Config header
++    remains absent from the installed public header set.
