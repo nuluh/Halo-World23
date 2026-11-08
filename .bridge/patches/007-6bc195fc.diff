@@ -1,0 +1,64 @@
+diff --git a/.gitea/workflows/solver-fast.yml b/.gitea/workflows/solver-fast.yml
+index 55e7170..746bbd4 100644
+--- a/.gitea/workflows/solver-fast.yml
++++ b/.gitea/workflows/solver-fast.yml
+@@ -1,58 +1 @@
+-name: Solver fast fixtures
+-
+-on:
+-  push:
+-    branches:
+-      - dev
+-      - issue/32-ex4-l10e40-regression-ci
+-  pull_request:
+-    branches:
+-      - dev
+-  workflow_dispatch:
+-
+-jobs:
+-  native-fixtures:
+-    runs-on: ubuntu-latest
+-    steps:
+-      - uses: actions/checkout@v4
+-      - name: Provision native build tools
+-        run: |
+-          python3 -m pip install --user --disable-pip-version-check --no-cache-dir \
+-            cmake==3.31.6 ninja==1.13.2
+-          export PATH="$HOME/.local/bin:$PATH"
+-          cmake --version
+-          ctest --version
+-          ninja --version
+-          g++ --version
+-          python3 --version
+-      - name: Native solver against frozen fixtures
+-        env:
+-          CMAKE_GENERATOR: Ninja
+-          CMAKE_BUILD_PARALLEL_LEVEL: 2
+-        run: |
+-          export PATH="$HOME/.local/bin:$PATH"
+-          bash scripts/build_native_tests.sh
+-      - name: Golden metadata and hashes
+-        run: python3 validation/fortran/golden/verify.py
+-
+-  native-sanitizers:
+-    runs-on: ubuntu-latest
+-    steps:
+-      - uses: actions/checkout@v4
+-      - name: Provision sanitizer build tools
+-        run: |
+-          python3 -m pip install --user --disable-pip-version-check --no-cache-dir \
+-            cmake==3.31.6 ninja==1.13.2
+-          export PATH="$HOME/.local/bin:$PATH"
+-          cmake --version
+-          ctest --version
+-          ninja --version
+-          g++ --version
+-          python3 --version
+-      - name: ASan and UBSan validation
+-        env:
+-          CMAKE_GENERATOR: Ninja
+-          CMAKE_BUILD_PARALLEL_LEVEL: 2
+-        run: |
+-          export PATH="$HOME/.local/bin:$PATH"
+-          bash scripts/build_native_sanitizers.sh
++The requested file reference is not currently visible. Use files.search or files.list to rediscover the file, then retry with a returned ref_id or file_id.
