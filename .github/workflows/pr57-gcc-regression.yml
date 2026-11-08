@@ -1,4 +1,4 @@
-name: PR57 GCC regression after Clang fixes
+name: PR57 GCC 14 regression after Clang fixes
 
 on:
   pull_request:
@@ -8,7 +8,7 @@ on:
       - ".validation/pr57-gcc-trigger.txt"
 
 jobs:
-  gcc-regression:
+  gcc14-regression:
     runs-on: ubuntu-latest
     env:
       ORIGIN_PR_HEAD: 8798f6b4cbaca6dc09ed244b0962c6a159c9c484
@@ -48,41 +48,43 @@ jobs:
           mkdir -p "$GITHUB_WORKSPACE/mirror/headers"
           cp -a Eigen "$GITHUB_WORKSPACE/mirror/headers/Eigen"
 
-      - name: Record GCC toolchain versions
+      - name: Record GCC 14 toolchain versions
         run: |
           set -euo pipefail
-          gcc --version
-          g++ --version
+          command -v gcc-14
+          command -v g++-14
+          gcc-14 --version
+          g++-14 --version
           cmake --version
           ninja --version
           python3 --version
 
-      - name: Configure GCC native regression build
+      - name: Configure GCC 14 native regression build
         working-directory: mirror
         run: |
           set -euo pipefail
-          rm -rf build-gcc
-          CC=gcc CXX=g++ \
-          cmake -S . -B build-gcc -G Ninja \
+          rm -rf build-gcc14
+          CC=gcc-14 CXX=g++-14 \
+          cmake -S . -B build-gcc14 -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
             -DOPENVFIFE_ENABLE_HARDENING=ON \
             -DOPENVFIFE_ENABLE_SANITIZERS=OFF \
             -DOPENVFIFE_WARNINGS_AS_ERRORS=ON
 
-      - name: Public header smoke with GCC
+      - name: Public header smoke with GCC 14
         working-directory: mirror
         run: |
           set -euo pipefail
-          cmake --build build-gcc --target openvfife_public_header_smoke --parallel 2
+          cmake --build build-gcc14 --target openvfife_public_header_smoke --parallel 2
 
-      - name: Full GCC native build
+      - name: Full GCC 14 native build
         working-directory: mirror
         run: |
           set -euo pipefail
-          cmake --build build-gcc --parallel 2
+          cmake --build build-gcc14 --parallel 2
 
-      - name: Full GCC CTest including frozen parity
+      - name: Full GCC 14 CTest including frozen parity
         working-directory: mirror
         run: |
           set -euo pipefail
-          ctest --test-dir build-gcc --output-on-failure
+          ctest --test-dir build-gcc14 --output-on-failure
