@@ -11,41 +11,41 @@ permissions:
 jobs:
   bridge:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
     steps:
-      - name: Download and verify LLVM 23.1.5
+      - name: Create tiny placeholder payloads
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p toolchains/chunks
-          curl -fL --retry 5 --retry-delay 2 \
-            -o toolchains/LLVM-23.1.5-Linux-X64.tar.zst \
-            "https://github.com/llvm/llvm-project/releases/download/llvmorg-23.1.5/LLVM-23.1.5-Linux-X64.tar.zst"
-          echo "c3107384835f788768f614db610e87fba7077f125ca950eb02a78bab0a308065  toolchains/LLVM-23.1.5-Linux-X64.tar.zst" | sha256sum -c -
-          split -b 400M -d -a 2 toolchains/LLVM-23.1.5-Linux-X64.tar.zst toolchains/chunks/llvm.part-
-          ls -lh toolchains/chunks
-          test "$(ls toolchains/chunks/llvm.part-* | wc -l)" -eq 3
+          mkdir -p out
+          printf 'placeholder\n' > out/a
+          cp out/a out/b
+          cp out/a out/c
+          cp out/a out/d
 
-      - name: Upload LLVM chunk 00
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
-          name: llvm-23.1.5-linux-x64-part-00
-          path: toolchains/chunks/llvm.part-00
+          name: placeholder-a
+          path: out/a
           compression-level: 0
           retention-days: 1
 
-      - name: Upload LLVM chunk 01
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
-          name: llvm-23.1.5-linux-x64-part-01
-          path: toolchains/chunks/llvm.part-01
+          name: placeholder-b
+          path: out/b
           compression-level: 0
           retention-days: 1
 
-      - name: Upload LLVM chunk 02
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
-          name: llvm-23.1.5-linux-x64-part-02
-          path: toolchains/chunks/llvm.part-02
+          name: placeholder-c
+          path: out/c
+          compression-level: 0
+          retention-days: 1
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: placeholder-d
+          path: out/d
           compression-level: 0
           retention-days: 1
