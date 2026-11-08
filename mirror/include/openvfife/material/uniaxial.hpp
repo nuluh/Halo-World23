@@ -84,7 +84,7 @@ class UniaxialPlastic: public BaseMaterial
         UniaxialPlastic(int id);
         ~UniaxialPlastic() override = default;
         void setYieldStress(double val);
-        virtual void info() const;
+        void info() const override;
 };
 
 class UniBilinear: public UniaxialPlastic
@@ -96,7 +96,7 @@ class UniBilinear: public UniaxialPlastic
         UniBilinear(int id, double E, double Et, double yield_stress, double m);
         ~UniBilinear() override = default;
         double Et() const;
-        virtual void info() const;
+        void info() const override;
         double update(double delta_strain,
                       UniaxialMaterialState &state) const override;
 };

@@ -35,7 +35,7 @@ class UniPower: public UniaxialPlastic
     public:
         UniPower(int id, double E, double n, double yield_stress, double m);
         ~UniPower() override = default;
-        virtual void info() const;
+        void info() const override;
         double update(double delta_strain,
                       UniaxialMaterialState &state) const override;
 };
