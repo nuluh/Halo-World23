@@ -11,41 +11,45 @@ permissions:
 jobs:
   bridge:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
-      - name: Create tiny placeholder payloads
+      - name: Download, verify, and split Emscripten 7.0.0 bundle
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p out
-          printf 'placeholder\n' > out/a
-          cp out/a out/b
-          cp out/a out/c
-          cp out/a out/d
+          mkdir -p out/chunks
+          curl -fL --retry 5 --retry-delay 2 \
+            -o out/emscripten-7.0.0-linux-x64.tar.xz \
+            "https://storage.googleapis.com/webassembly/emscripten-releases-builds/linux/6afbd83493d647051772d491124187d4e9a0cda9/wasm-binaries.tar.xz"
+          echo "6e7c6d26cf8bde31e6cf6a377c113f913cb2d30f4c2d671c1042e1c4bcd16495  out/emscripten-7.0.0-linux-x64.tar.xz" | sha256sum -c -
+          split -b 90M -d -a 2 out/emscripten-7.0.0-linux-x64.tar.xz out/chunks/emscripten.part-
+          test "$(ls out/chunks/emscripten.part-* | wc -l)" -eq 4
+          ls -lh out/chunks
 
       - uses: actions/upload-artifact@v4
         with:
-          name: placeholder-a
-          path: out/a
+          name: emscripten-7.0.0-part-00
+          path: out/chunks/emscripten.part-00
           compression-level: 0
           retention-days: 1
 
       - uses: actions/upload-artifact@v4
         with:
-          name: placeholder-b
-          path: out/b
+          name: emscripten-7.0.0-part-01
+          path: out/chunks/emscripten.part-01
           compression-level: 0
           retention-days: 1
 
       - uses: actions/upload-artifact@v4
         with:
-          name: placeholder-c
-          path: out/c
+          name: emscripten-7.0.0-part-02
+          path: out/chunks/emscripten.part-02
           compression-level: 0
           retention-days: 1
 
       - uses: actions/upload-artifact@v4
         with:
-          name: placeholder-d
-          path: out/d
+          name: emscripten-7.0.0-part-03
+          path: out/chunks/emscripten.part-03
           compression-level: 0
           retention-days: 1
