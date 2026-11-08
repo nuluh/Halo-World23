@@ -12,6 +12,9 @@ jobs:
     runs-on: ubuntu-latest
     container:
       image: gcc:14.2.0
+    defaults:
+      run:
+        shell: bash
     env:
       ORIGIN_PR_HEAD: 8798f6b4cbaca6dc09ed244b0962c6a159c9c484
       MIRROR_TREE: 4a56a0c64efe5f314b0566c450a987ed7d8d1f1b
