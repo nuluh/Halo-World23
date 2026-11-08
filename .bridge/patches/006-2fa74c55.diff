@@ -1,0 +1,49 @@
+diff --git a/.gitea/workflows/solver-fast.yml b/.gitea/workflows/solver-fast.yml
+index ec8c442..55e7170 100644
+--- a/.gitea/workflows/solver-fast.yml
++++ b/.gitea/workflows/solver-fast.yml
+@@ -17,8 +17,9 @@ jobs:
+       - uses: actions/checkout@v4
+       - name: Provision native build tools
+         run: |
+-          sudo apt-get update
+-          sudo apt-get install -y --no-install-recommends cmake ninja-build
++          python3 -m pip install --user --disable-pip-version-check --no-cache-dir \
++            cmake==3.31.6 ninja==1.13.2
++          export PATH="$HOME/.local/bin:$PATH"
+           cmake --version
+           ctest --version
+           ninja --version
+@@ -28,7 +29,9 @@ jobs:
+         env:
+           CMAKE_GENERATOR: Ninja
+           CMAKE_BUILD_PARALLEL_LEVEL: 2
+-        run: bash scripts/build_native_tests.sh
++        run: |
++          export PATH="$HOME/.local/bin:$PATH"
++          bash scripts/build_native_tests.sh
+       - name: Golden metadata and hashes
+         run: python3 validation/fortran/golden/verify.py
+ 
+@@ -38,14 +41,18 @@ jobs:
+       - uses: actions/checkout@v4
+       - name: Provision sanitizer build tools
+         run: |
+-          sudo apt-get update
+-          sudo apt-get install -y --no-install-recommends cmake ninja-build
++          python3 -m pip install --user --disable-pip-version-check --no-cache-dir \
++            cmake==3.31.6 ninja==1.13.2
++          export PATH="$HOME/.local/bin:$PATH"
+           cmake --version
+           ctest --version
+           ninja --version
+           g++ --version
++          python3 --version
+       - name: ASan and UBSan validation
+         env:
+           CMAKE_GENERATOR: Ninja
+           CMAKE_BUILD_PARALLEL_LEVEL: 2
+-        run: bash scripts/build_native_sanitizers.sh
++        run: |
++          export PATH="$HOME/.local/bin:$PATH"
++          bash scripts/build_native_sanitizers.sh
