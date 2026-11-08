@@ -1,0 +1,744 @@
+diff --git a/docs/architecture/adr-0001-r1-library-boundaries.md b/docs/architecture/adr-0001-r1-library-boundaries.md
+new file mode 100644
+index 0000000..4c3edc2
+--- /dev/null
++++ b/docs/architecture/adr-0001-r1-library-boundaries.md
+@@ -0,0 +1,330 @@
++# ADR-0001: R1 openVFIFE library boundaries
++
++- **Status:** Accepted for R1 implementation
++- **Decision date:** 2026-11-08
++- **Baseline:** `refactor/modern-cpp@32800f03a5d47f997b1a0c70460bad83fcf7faf7`
++- **Milestone:** R1 — openVFIFE C++ modernization & library refactor
++- **Parent issue:** #39
++- **Executor issue:** #40
++- **Architecture review:** #39 comment 692
++
++## Context
++
++The modernized branch has a C++20 safety baseline, RAII ownership, typed uniaxial
++material state, hardened native builds, frozen Fortran-oracle checks, and a WASM
++binding. Its repository layout still exposes implementation history rather than a
++recognizable library contract: public declarations live in `headers/`, all types
++are in the global namespace, subsystem dependencies are implicit, solver and file
++output responsibilities are mixed, and the WASM shim compiles the production
++sources directly.
++
++R1 will reorganize that code without changing verified solver behavior. This ADR
++defines the boundary first so that later issues can move files and tighten
++contracts without inventing architecture while editing formulas.
++
++The capability inventory in
++[`r1-capability-inventory.md`](r1-capability-inventory.md) is normative for what
++R1 currently calls supported, experimental, unimplemented, or internal. The
++migration map in [`r1-migration-map.md`](r1-migration-map.md) is normative for the
++first file/namespace move.
++
++## Decision
++
++### 1. One public namespace and one compiled library
++
++All supported public C++ declarations will live in the single namespace
++`openvfife`. Folder names are organizational boundaries, not nested C++
++namespaces. R1 does **not** introduce `openvfife::element`,
++`openvfife::solver`, or similar namespace layers.
++
++The canonical compiled target will be `openvfife`, exported to downstream CMake
++consumers as:
++
++```cmake
++openVFIFE::openvfife
++```
++
++R1 begins with one compiled library. Separate compiled subsystem libraries are
++not justified by the current dependency graph and would add packaging surface
++without improving correctness.
++
++### 2. Public include layout
++
++The first structural move will use these concept folders:
++
++```text
++include/
++  openvfife/
++    core/
++      particle.hpp
++    numerics/
++      quadrature.hpp
++    material/
++      material.hpp
++    section/
++      section.hpp
++      grid_section.hpp        # experimental surface; not in umbrella initially
++    element/
++      element.hpp
++    solver/
++      struct_system.hpp
++    openvfife.hpp             # small supported umbrella only
++src/
++  core/particle.cpp
++  numerics/quadrature.cpp
++  material/material.cpp
++  section/section.cpp
++  section/grid_section.cpp
++  element/element.cpp
++  solver/struct_system.cpp
++  io/                         # implementation/adapters introduced only when #46 needs them
++bindings/
++  wasm/vfife_shim.cpp
++```
++
++No empty public `io/` framework is created merely to satisfy a diagram. The
++legacy `Config` utility is internal and is moved under `src/io/` when its ODR
++hazard is corrected in #46. Public I/O headers are added only if #46 identifies
++a supported consumer contract.
++
++The optional umbrella header will initially include only supported public
++families:
++
++```cpp
++#include <openvfife/core/particle.hpp>
++#include <openvfife/numerics/quadrature.hpp>
++#include <openvfife/material/material.hpp>
++#include <openvfife/section/section.hpp>
++#include <openvfife/element/element.hpp>
++#include <openvfife/solver/struct_system.hpp>
++```
++
++`section/grid_section.hpp` remains directly includable for experimental users but
++is intentionally omitted from the supported umbrella until an integrated element
++family consumes it with adequate verification.
++
++### 3. Dependency direction
++
++The target dependency graph is deliberately small:
++
++```mermaid
++flowchart LR
++  core[core] --> eigen[Eigen 3.4.0]
++  numerics[numerics]
++  material[material]
++  section[section geometry]
++  grid[section grid/integration] --> section
++  grid --> material
++  grid --> numerics
++  element[element] --> core
++  element --> material
++  element --> section
++  solver[solver] --> core
++  solver --> material
++  solver --> section
++  solver --> element
++  io[io adapters/internal config] --> solver
++  wasm[bindings/wasm] --> solver
++  wasm --> element
++```
++
++The corresponding rules are:
++
++| Area | May depend on | Must not depend on |
++| --- | --- | --- |
++| `core` | C++ standard library, exported Eigen headers where public types require them | numerics, material, section, element, solver, I/O, bindings, UI |
++| `numerics` | C++ standard library | solver, bindings, UI |
++| `material` | C++ standard library; low-level math only when required by its own contract | element, solver, bindings, UI |
++| `section/section` | C++ standard library | element, solver, bindings, UI |
++| `section/grid_section` | section geometry, material response, numerics | element, solver, bindings, UI |
++| `element` | core, material, section geometry | solver, I/O, bindings, UI |
++| `solver` | core, material, section, element | bindings, UI |
++| `io` | stable library read/query surface as needed | bindings, UI |
++| `bindings/wasm` | public/core library API | UI implementation details |
++
++The current `element.h` includes `gridsection.h` and `integrator.h` even though the
++modern branch no longer contains the old plastic-beam classes that required them.
++#42 should remove such accidental transitive includes while preserving behavior.
++
++### 4. Keep class names during the structural move
++
++R1 changes include paths and introduces `openvfife`, but it does not combine that
++source-breaking migration with gratuitous class renaming. Existing class names
++remain the initial public spelling (`Particle`, `LinearElastic`, `Beam3D`,
++`StructSystem`, and so on). Any later naming cleanup requires a separate API
++decision and migration plan.
++
++Global compatibility aliases are **not** added by default. They would make the
++old global namespace part of the new API indefinitely and hide incomplete caller
++migration.
++
++### 5. Ownership and observer lifetime contract
++
++`StructSystem` is the owning aggregate for objects transferred to it through
++`std::unique_ptr`. Elements observe their particles, material, and section; those
++observer references/pointers do not own the dependency.
++
++R1 preserves these invariants:
++
++- A system outlives its owned particles, materials, sections, and elements.
++- Elements must not outlive the objects they observe.
++- Element destruction occurs before the particle/material/section objects it
++  observes. The existing `StructSystem::clearOwnedObjects()` order is therefore
++  semantically significant.
++- Failed elements and free particles remain owned when moved into the existing
++  lifecycle containers.
++- The modern branch currently does not prove that every dependency referenced by
++  an element belongs to the same `StructSystem`; #44 owns that checked-membership
++  change and must test it separately.
++
++Returning a const container of `unique_ptr` does not make the pointed-to solver
++objects deeply immutable. R1 therefore makes no thread-safety promise. Parallel
++assembly, shared mutable materials, GPU execution, and a general concurrency
++framework are outside this milestone.
++
++### 6. Required versus optional section contract
++
++A beam/link structural formulation requires a `BaseSection`. A generic element
++base cannot assume that every formulation has a beam cross-section.
++
++The R1 contract is:
++
++- `StructElement` and the current link/beam families require a non-null section.
++- The common `BaseElement` representation must permit “no section”.
++- Surface formulations may carry their own thickness/section-like data.
++- Solid formulations do not receive a dummy beam section.
++- Access to an optional section must be checked/explicit; unconditional
++  dereference through `BaseElement::section()` is not the final common-base
++  contract.
++
++#43 implements and tests this decision. #40 records it only.
++
++This decision is informed by `feature/solid-tet-fracture` at
++`b83e9211cc7b3fa62712a1c3f9c2058cff583eea`, where `ShellTri3` and `SolidTet4`
++construct their plane/solid bases with a null section. That branch is integration
++evidence, not a production API to copy wholesale.
++
++### 7. Ordered element topology is explicit
++
++`BaseElement` currently exposes a `std::map<int, Particle*>`, which is ordered by
++particle ID. Map order is suitable for lookup/reporting but is not a geometric
++local-node ordering contract.
++
++Each formulation that depends on local node order must retain an explicit ordered
++connectivity representation. Existing `StructElement` already does this with
++`pi_`/`pj_`. A triangle/tetrahedron must similarly preserve `p0,p1,p2[,p3]`
++semantics independent of particle IDs. #43 owns the implementation.
++
++### 8. Six storage slots do not imply six active DOFs
++
++`Particle` stores six translational/rotational slots and a six-entry activity
++mask. This is storage, not a requirement that every formulation activate all six
++DOFs.
++
++Element families activate only the DOFs required by their formulation. Future
++solid elements may use translational DOFs only; shell formulations may require
++rotations. The common core does not encode a “frame node” assumption.
++
++### 9. Material parameters are shared; response history is not
++
++`BaseMaterial` on the modern branch is a **uniaxial** material-parameter and
++response contract despite its generic historical name. Mutable constitutive
++history belongs to the element/integration point, represented today by
++`UniaxialMaterialState` for link/section-fiber responses.
++
++R1 does not generalize this into a universal continuum constitutive interface.
++Plane-stress/plane-strain and 3D response contracts require formulation-specific
++follow-up work and verification. `ShellTri3`/`SolidTet4` from the feature branch
++must not be presented as validated merely because frame parity passes.
++
++### 10. Numerical output contracts remain formulation-specific
++
++`ElementForce`, `Strain`, and `Stress` describe the current frame/link result
++surface. They are not declared to be a universal continuum result schema. A
++future continuum contract must document stress/strain measure, component order,
++engineering versus tensor shear, local axes, units, and result location
++(node/end/integration point).
++
++R1 preserves the existing CSV schemas and WASM C ABI while isolating their
++implementation. A general results API is outside R1.
++
++### 11. Eigen policy
++
++R1 uses the vendored Eigen **3.4.0** tree under `headers/Eigen` as the default
++public dependency baseline. This keeps offline builds reproducible while the
++package layout changes. Because public APIs currently expose Eigen types, #47
++must export/include Eigen correctly for installed consumers rather than relying
++on repository-relative paths.
++
++System Eigen discovery is optional follow-up work, not an R1 blocker.
++
++### 12. WASM is a binding, not the library architecture
++
++`wasm/vfife_shim.cpp` is an external C ABI adapter over the C++ library. It moves
++to `bindings/wasm/` and must link the canonical library target rather than own a
++separate list of core `.cpp` files. C export names, Emscripten settings, generated
++module shape, and worker import expectations are compatibility constraints for
++#48.
++
++No browser/UI header or implementation becomes a dependency of the C++ core.
++
++### 13. Version and compatibility policy
++
++The repository documents a historical 1.x line: the README states licensing
++from version 1.0 and `WIKI.md` records upstream `v1.02` (2021). R1 deliberately
++changes both include paths and the C++ namespace. Those changes are
++**source-breaking**, even though verified numerical behavior is intended to be
++preserved.
++
++Therefore:
++
++- R1 does not claim source or binary ABI compatibility with the historical 1.x
++  global-namespace/header layout.
++- If this refactor is published as a versioned public release, it should use a
++  new major compatibility line (for example 2.x, with pre-releases as needed),
++  not imply that it is a drop-in 1.0x update.
++- Supported types are the compatibility surface for that release line.
++- Experimental types have no stability promise until promoted with evidence.
++- Unimplemented types are not documented as usable functionality.
++- No ABI stability guarantee is introduced by R1; compiler/standard-library/Eigen
++  ABI compatibility remains a downstream packaging concern.
++
++## Deferred work owned by later R1 issues
++
++This ADR intentionally does not implement the following:
++
++- canonical CMake/package target — #41
++- file moves and `openvfife` namespace — #42
++- topology and optional-section fixes — #43
++- closed system membership / checked IDs / safe removal — #44
++- material defaults and unsupported numerical capability handling — #45
++- I/O isolation and `Config` ODR correction — #46
++- relocatable install and Eigen export — #47
++- WASM target migration and fresh artifact validation — #48
++- CI enforcement — #49
++- final public/contributor documentation and executable examples — #50
++- continuum integration/follow-up numerical briefs — #51
++- integrated acceptance — #52
++
++## Consequences
++
++### Positive
++
++- Contributors get familiar include/source/CMake boundaries without changing
++  verified formulas during the structural move.
++- Public, experimental, unimplemented, and internal surfaces are explicit before
++  installation/export work begins.
++- Continuum work can be reconciled without forcing frame-specific assumptions
++  (mandatory beam sections, ID-sorted topology, six active DOFs) into the common
++  base.
++- WASM and UI remain consumers of the library rather than architectural owners of
++  it.
++
++### Costs
++
++- Existing C++ callers must update include paths and qualify types with
++  `openvfife::`.
++- Some historically visible declarations will no longer be promoted as supported
++  public API.
++- R1 must carry both architecture migration work and explicit compatibility
++  documentation because the change is source-breaking.
+\ No newline at end of file
+diff --git a/docs/architecture/r1-capability-inventory.md b/docs/architecture/r1-capability-inventory.md
+new file mode 100644
+index 0000000..8206f74
+--- /dev/null
++++ b/docs/architecture/r1-capability-inventory.md
+@@ -0,0 +1,168 @@
++# R1 capability and API inventory
++
++**Inventory baseline:** `refactor/modern-cpp@32800f03a5d47f997b1a0c70460bad83fcf7faf7`
++
++This inventory distinguishes code that exists from behavior that R1 is willing to
++call supported. It is the evidence/status input for issues #41–#52 and should be
++updated when later work changes a status.
++
++## Status definitions
++
++| Status | Meaning in R1 |
++| --- | --- |
++| **Supported** | Intended public R1 surface with direct regression/unit/oracle evidence for the stated scope. Known limits are listed explicitly. |
++| **Experimental** | Compiled or implemented code exists, but verification or integration is insufficient for a stable supported contract. Direct inclusion may be possible, but no stability promise is made. |
++| **Unimplemented** | Declaration/scaffolding exists without a usable formulation. It must not be advertised as functionality. |
++| **Internal** | Repository/build/binding/helper implementation, not part of the installed C++ API. |
++
++“Supported” is scoped. For example a section can be supported for area/inertia
++while a shear-center property is explicitly unavailable.
++
++## Production header inventory
++
++Every non-Eigen production header on the modern baseline has a destination and a
++public/internal decision below.
++
++| Current header | Types / functions | R1 status | Public? | First R1 destination | Evidence and limits |
++| --- | --- | --- | --- | --- | --- |
++| `headers/particle.h` | `Dof`, `DOF`, `Mass`, `Particle` | Supported | Yes | `include/openvfife/core/particle.hpp` | `tests/test_particle.cpp`; exercised by all frame, oracle, and shim tests. Six storage slots are not six mandatory active DOFs. Translation mass-matrix time integration is explicitly rejected; invertible rotational inertia is supported. |
++| `headers/material.h` | `UniaxialMaterialState`, `BaseMaterial`, `LinearElastic`, `UniaxialPlastic`, `UniIdeal`, `UniBilinear`, `UniPower` | Mixed; see type table | Yes, except unsupported behavior is documented | `include/openvfife/material/material.hpp` | `tests/test_material.cpp`; `UniPower` has a known constitutive TODO and is not promoted as supported. The common contract is uniaxial, not a generic continuum law. |
++| `headers/section.h` | `BaseSection`, `CustomSectionParas`, `CustomSection`, `Ctube`, `AngleSteel`, `Rectangle` | Mixed; see type table | Yes | `include/openvfife/section/section.hpp` | Beam/oracle tests rely heavily on `CustomSection`; section-specific evidence varies. Calculated shear center is unavailable for `Ctube`, `AngleSteel`, and `Rectangle` and currently becomes zero after a diagnostic. |
++| `headers/integrator.h` | `BaseIntegrator`, `GaussLegendre`, `GaussLobatto` | Supported spatial quadrature | Yes | `include/openvfife/numerics/quadrature.hpp` | `tests/test_integrator.cpp` covers constant 1D/2D/3D integration, order bounds, invalid inputs, and index errors. This is spatial quadrature, not time stepping. |
++| `headers/gridsection.h` | `SectionPoint`, `CellNodes`, `SectionGridParameter`, `SectionCell`, `SectionResponse`, `SectionGrid`, `RectangleGrid`, `AngleSteelGrid`, `CreateGrid` | Experimental | Yes, experimental direct include; omit from initial umbrella | `include/openvfife/section/grid_section.hpp` | `tests/test_gridsection.cpp` unit-tests cells, response, damage, rectangle grids, factory errors, and deferred material assignment. No current production element consumes this subsystem after the plastic-beam classes were removed; valid `AngleSteelGrid` behavior is not directly regression-tested. |
++| `headers/element.h` | `Strain`, `Stress`, `ElementForce`, `BaseElement`, `StructElement`, `PlaneElement`, `SolidElement`, `Link2D`, `Link2DLD`, `Link3D`, `Link3DLD`, `Beam2D`, `Beam3D` | Mixed; see type table | Supported/experimental types public; stubs not documented as usable | `include/openvfife/element/element.hpp` | Direct element invariants, closed-form beams, frozen oracle, and shim regressions exist for only a subset. Common-base section/topology contracts are fixed in #43. |
++| `headers/structsystem.h` | `StructSystem`; `isFileExists`, `isDirExists`, `makedir` | `StructSystem`: Supported; file helpers: Internal | `StructSystem`: Yes; helpers: No | `include/openvfife/solver/struct_system.hpp`; file helpers move behind `src/io/` implementation | `tests/test_structsystem.cpp`, frame tests, frozen oracle, shim tests. #44 still has to enforce same-system membership/checked removal. Filesystem helpers are implementation detail, not library API. |
++| `headers/config.hpp` | `Config` and stream/template helpers | Internal legacy | No | `src/io/config.hpp` + implementation after #46 | No current production/test caller. Ordinary non-inline definitions in the header create a multi-TU ODR hazard. #46 decides whether to retain the utility internally or replace it; it is not installed as-is. |
++
++The bundled `headers/Eigen/` tree is third-party Eigen 3.4.0, not openVFIFE API.
++#47 owns its relocatable export/install treatment.
++
++## Type-level capability inventory
++
++### Core
++
++| Type/capability | Status | Evidence / boundary |
++| --- | --- | --- |
++| `Dof`, `DOF` | Supported | Typed DOF activation and constraint use are covered by `test_particle`, `test_structsystem`, beams and shim tests. |
++| `Mass` lumped mass | Supported | Positive/non-negative invariants and solver use covered by `test_particle` and element/system regressions. |
++| `Mass::rotation_mass_matrix` | Supported with constraint | `Particle` accepts it only when invertible for the active rotational solve; frozen integration probes exercise rotational inertia. |
++| `Mass::translate_mass_matrix` solve path | **Not supported** | `Particle::solve*` throws `logic_error`; `test_particle` requires rejection. Storage/setters existing does not make time integration available. |
++| `Particle` | Supported | Direct state/invariant tests plus all solver families. |
++
++### Materials
++
++| Type | Status | Evidence / limitation |
++| --- | --- | --- |
++| `UniaxialMaterialState` | Supported | Explicit value-state contract used by link/section response; direct material and grid-section tests. History belongs to the response point/element, not the shared parameter object. |
++| `BaseMaterial` | Supported uniaxial extension contract | Current virtual response is scalar `update(delta_strain, state)`. It must not be described as a plane-stress/3D constitutive interface. |
++| `LinearElastic` | Supported | Direct update/state tests; beam/frame/oracle/shim paths. |
++| `UniaxialPlastic` | Supported as abstract uniaxial base | Used by concrete plastic material classes; not itself constructible. |
++| `UniBilinear` | Supported for tested uniaxial response | `test_material` covers elastic step, plastic return, unload state and parameter validation; WASM exposes it. |
++| `UniIdeal` | Experimental | Constructor/invariant rejection is tested, but no constitutive history regression establishes its numerical response. |
++| `UniPower` | Experimental / known numerical gap | Constructor invariants are tested, but `headers/material.h` still records that the constitutive update is not correct because last yield strain is not retained. R1 must not present it as verified. Repair is outside R1 completion. |
++
++### Sections
++
++| Type | Status | Evidence / limitation |
++| --- | --- | --- |
++| `BaseSection` | Supported base for current structural elements | Public geometric property interface used throughout beam/link code. Some properties can be unavailable for specific derived shapes. |
++| `CustomSectionParas`, `CustomSection` | Supported | Primary section in Beam2D/Beam3D, frozen oracle, progression probes, shim, and direct section tests. `J <= 0` uses the documented polar fallback. |
++| `Rectangle` | Supported for geometry/grid usage | Used by `test_gridsection`; area/inertia formulation is production code. Calculated shear center is not implemented and must not be interpreted as verified zero. |
++| `AngleSteel` | Experimental/partial | Basic construction/area and invalid thickness are tested; `AngleSteelGrid` wrong-type rejection is tested. `calcSHy/calcSHz` are explicitly not defined and return zero after a diagnostic. No full section-property oracle exists. |
++| `Ctube` | Experimental | Implementation exists but no direct regression test covers it; calculated shear center is explicitly not defined. |
++
++### Spatial quadrature and section integration
++
++| Type | Status | Evidence / limitation |
++| --- | --- | --- |
++| `BaseIntegrator` | Supported spatial quadrature base | Direct constant-integral and error tests. |
++| `GaussLegendre` | Supported for implemented orders 1–10 | Bounds/rejection and representative integration covered by `test_integrator`. |
++| `GaussLobatto` | Supported for implemented orders 2–10 | Bounds/rejection covered by `test_integrator`; used historically for section integration. |
++| `SectionPoint`, `CellNodes`, `SectionGridParameter` | Experimental data contracts | Unit-tested only through the experimental grid-section subsystem. |
++| `SectionCell`, `SectionResponse` | Experimental | Unit tests cover elastic response, damage, material assignment, and result aggregation, but no current supported element consumes them. |
++| `SectionGrid` | Experimental extension base | No supported production element currently depends on it. |
++| `RectangleGrid` | Experimental with unit evidence | Valid rectangle grid and invalid dimensions/cell count tested. |
++| `AngleSteelGrid` | Experimental with insufficient positive-path evidence | Type/error paths exist; no direct valid-grid numerical regression. |
++| `CreateGrid` | Experimental | Factory supports Rectangle/AngleSteel; unsupported section rejection tested. |
++
++### Elements
++
++| Type | Status | Evidence / limitation |
++| --- | --- | --- |
++| `Strain`, `Stress`, `ElementForce` | Supported for current frame/link result contracts | Used by current elements/tests. They are not declared universal continuum result records. |
++| `BaseElement` | Supported common lifecycle/observer base with contract change pending | `test_element` checks particle-ID/length invariants through structural elements. #43 must make optional section and ordered topology explicit before continuum promotion. |
++| `StructElement` | Supported structural-family base | Required particle/material/section observers underpin all current beam/link formulations. |
++| `PlaneElement` | **Unimplemented** on modern baseline | Abstract TODO scaffolding; no production plane formulation on `refactor/modern-cpp`. Its current constructor/topology assumptions are not a stable extension contract. |
++| `SolidElement` | **Unimplemented** on modern baseline | Abstract TODO scaffolding; no production solid formulation on `refactor/modern-cpp`. |
++| `Link2D` | Supported | `test_beam2d` documented two-bar truss, element construction/invariant tests. |
++| `Link2DLD` | Experimental | Implementation exists and uses typed material state, but current native regression suite has no direct numerical case for this class. |
++| `Link3D` | Experimental | Constructibility is checked; no direct force/displacement numerical regression in the modern suite. |
++| `Link3DLD` | Experimental | Implementation and WASM exposure exist, but current native tests do not exercise a numerical `kind=3` model. |
++| `Beam2D` | Supported | Closed-form axial, cantilever load, cantilever moment, simply supported cases; shim regression. |
++| `Beam3D` | Supported | Closed-form biaxial bending, torsion, grillage; 183-value frozen low-level/frame oracle; 309-value progression/transient oracle; 3D portal shim regression. |
++
++### Solver/system and I/O
++
++| Capability | Status | Evidence / limitation |
++| --- | --- | --- |
++| `StructSystem` unique ownership and destruction order | Supported | `test_structsystem`; sanitizer suite; frame/shim tests. Elements observe dependencies; same-system membership is not yet enforced. |
++| Constraints and explicit stepping | Supported for tested frame workflows | Direct system tests plus frame/shim regressions. |
++| Element kill/free-particle ownership transfer | Existing behavior, further hardening pending | Ownership containers preserve lifetime; #44 owns checked removal/membership rules. |
++| CSV/model filesystem writers on `StructSystem` | Supported legacy behavior, architecturally coupled | R1 preserves output schemas. #46 isolates I/O without changing schemas. |
++| `isFileExists`, `isDirExists`, `makedir` | Internal | Tested as filesystem helpers but not retained as installed public API. |
++| `Config` | Internal legacy / unsafe to export as-is | Header-defined ordinary functions create ODR risk; no production caller evidence. |
++
++## Existing validation evidence on the modern baseline
++
++The R1 modernization issue records these mandatory evidence families for the
++current code state:
++
++- native Beam2D/Beam3D and shim fixtures, including the heavy 3D portal case;
++- frozen C++/Fortran parity: 183 low-level/stage values;
++- frozen progression/transient parity: 309 values;
++- ASan + UBSan native validation;
++- focused unit suites for element construction, grid section, integrator,
++  material, particle, section, and `StructSystem`.
++
++A supported status above identifies which of those checks directly establishes a
++particular family. Passing frame parity does not prove untested material, section,
++or continuum formulations.
++
++## Separate continuum feature branch inventory
++
++`feature/solid-tet-fracture@b83e9211cc7b3fa62712a1c3f9c2058cff583eea`
++contains substantial implementation work that is **not** part of the modern
++production baseline.
++
++| Feature-branch item | R1 status | Evidence present there | Why it is not promoted by #40 |
++| --- | --- | --- | --- |
++| `ShellTri3` | Experimental, external branch only | `tests/test_shell.cpp`: rigid motion, membrane patch, cantilever bending, membrane plasticity, shim erosion/damage; final test harness reports accumulated checks/failures. | Branch predates the modern ownership/API baseline; constructor passes no beam section; formulation-specific validation has not been reconciled with current contracts or frozen-oracle policy. |
++| `SolidTet4` | Experimental, external branch only | `tests/test_solidtet.cpp`: SVK statics/equilibrium, rigid motion, brittle failure/damage, J2 plasticity sanity, shim erosion/damage, ground contact. | Same integration gap; no current modern-branch public contract or accepted continuum oracle. |
++| continuum WASM additions | Experimental, external branch only | Shim contains `vf_add_tet`, `vf_add_shell`, failure/damage tracking and contact paths. | #48 only migrates accepted binding capabilities; #51 defines concrete continuum follow-up evidence. |
++
++The feature branch demonstrates two architecture requirements that R1 must
++support even before integrating those formulations:
++
++1. shell/solid constructors intentionally use no beam `BaseSection`;
++2. local node order is geometric data and must not be inferred from the
++   ID-sorted `BaseElement::particles_` map.
++
++Do **not** wholesale copy the feature branch's older raw-pointer implementation
++into the modern branch. Port/reconcile formulation code only after #43/#45
++contracts and #51 verification requirements are in place.
++
++## Explicit unresolved numerical limitations
++
++These limitations must remain visible in documentation and failure behavior:
++
++- `UniPower` constitutive history/correctness TODO is unresolved.
++- calculated shear center (`SHy`, `SHz`) is not implemented for `Ctube`,
++  `AngleSteel`, or `Rectangle`; returning stored zero must not be represented as a
++  verified physical value.
++- translation mass-matrix integration is not implemented and is deliberately
++  rejected by `Particle::solve*`.
++- `PlaneElement` and `SolidElement` are not usable formulations on the modern
++  baseline.
++- no frame regression can validate ShellTri3/SolidTet4 continuum correctness.
++- no universal result API, parallel assembly contract, GPU path, full shell/solid
++  port, or general continuum constitutive framework is an R1 requirement.
+\ No newline at end of file
+diff --git a/docs/architecture/r1-migration-map.md b/docs/architecture/r1-migration-map.md
+new file mode 100644
+index 0000000..f1370df
+--- /dev/null
++++ b/docs/architecture/r1-migration-map.md
+@@ -0,0 +1,225 @@
++# R1 public API migration map
++
++**Source baseline:** `refactor/modern-cpp@32800f03a5d47f997b1a0c70460bad83fcf7faf7`
++
++This map is the implementation contract for the first layout/namespace move in
++#42. #40 does not move these files; it records exactly where current declarations
++belong so #41/#42 can execute without redesigning the API during mechanical edits.
++
++## Migration rules
++
++1. Public types move into the single namespace `openvfife`.
++2. Existing class/type names stay unchanged during the move.
++3. Public include paths change from repository-relative `headers/*.h` to
++   `<openvfife/.../*.hpp>`.
++4. No global compatibility aliases are created by default.
++5. Internal helpers are not installed merely because they historically lived in
++   `headers/`.
++6. Experimental headers are explicitly includable but are omitted from the
++   initial supported umbrella header.
++7. Unimplemented element scaffolding is not advertised as usable capability.
++8. Numerical formulas, iteration order, frozen fixtures, reference data and
++   tolerances are not changed by the layout migration.
++
++## Header and source destination map
++
++| Current header | Current source | Destination public header | Destination implementation | Public status |
++| --- | --- | --- | --- | --- |
++| `headers/particle.h` | `src/particle.cpp` | `include/openvfife/core/particle.hpp` | `src/core/particle.cpp` | Supported public |
++| `headers/material.h` | `src/material.cpp` | `include/openvfife/material/material.hpp` | `src/material/material.cpp` | Mixed supported/experimental public; capability table governs |
++| `headers/section.h` | `src/section.cpp` | `include/openvfife/section/section.hpp` | `src/section/section.cpp` | Mixed supported/experimental public; capability table governs |
++| `headers/integrator.h` | `src/integrator.cpp` | `include/openvfife/numerics/quadrature.hpp` | `src/numerics/quadrature.cpp` | Supported public |
++| `headers/gridsection.h` | `src/gridsection.cpp` | `include/openvfife/section/grid_section.hpp` | `src/section/grid_section.cpp` | Experimental public; direct include only initially |
++| `headers/element.h` | `src/element.cpp` | `include/openvfife/element/element.hpp` | `src/element/element.cpp` | Mixed supported/experimental/unimplemented; capability table governs |
++| `headers/structsystem.h` | `src/structsystem.cpp` | `include/openvfife/solver/struct_system.hpp` | `src/solver/struct_system.cpp` | `StructSystem` supported public; filesystem helpers become internal |
++| `headers/config.hpp` | header-only ordinary definitions | **No installed public header in R1 as-is** | `src/io/config.hpp` plus `.cpp` if retained by #46 | Internal legacy |
++| n/a | `wasm/vfife_shim.cpp` | n/a | `bindings/wasm/vfife_shim.cpp` | Binding/internal C++ implementation; exported C ABI handled by #48 |
++
++The mapping intentionally keeps coherent historical declarations together for the
++first move. R1 does not mechanically split every class into a separate file.
++Further splits are justified only by dependency or consumer needs.
++
++## Type map
++
++All public entries below acquire the `openvfife::` qualifier. Names otherwise
++remain unchanged.
++
++### `headers/particle.h` → `<openvfife/core/particle.hpp>`
++
++| Current spelling | R1 spelling | Status |
++| --- | --- | --- |
++| `Dof` | `openvfife::Dof` | Supported |
++| `DOF` | `openvfife::DOF` | Supported |
++| `Mass` | `openvfife::Mass` | Supported with capability limits |
++| `Particle` | `openvfife::Particle` | Supported |
++
++### `headers/material.h` → `<openvfife/material/material.hpp>`
++
++| Current spelling | R1 spelling | Status |
++| --- | --- | --- |
++| `UniaxialMaterialState` | `openvfife::UniaxialMaterialState` | Supported |
++| `BaseMaterial` | `openvfife::BaseMaterial` | Supported uniaxial base |
++| `LinearElastic` | `openvfife::LinearElastic` | Supported |
++| `UniaxialPlastic` | `openvfife::UniaxialPlastic` | Supported abstract uniaxial base |
++| `UniIdeal` | `openvfife::UniIdeal` | Experimental |
++| `UniBilinear` | `openvfife::UniBilinear` | Supported for tested uniaxial response |
++| `UniPower` | `openvfife::UniPower` | Experimental; known numerical gap |
++
++### `headers/section.h` → `<openvfife/section/section.hpp>`
++
++| Current spelling | R1 spelling | Status |
++| --- | --- | --- |
++| `BaseSection` | `openvfife::BaseSection` | Supported base |
++| `CustomSectionParas` | `openvfife::CustomSectionParas` | Supported |
++| `CustomSection` | `openvfife::CustomSection` | Supported |
++| `Ctube` | `openvfife::Ctube` | Experimental |
++| `AngleSteel` | `openvfife::AngleSteel` | Experimental/partial |
++| `Rectangle` | `openvfife::Rectangle` | Supported for stated geometry/grid scope |
++
++### `headers/integrator.h` → `<openvfife/numerics/quadrature.hpp>`
++
++| Current spelling | R1 spelling | Status |
++| --- | --- | --- |
++| `BaseIntegrator` | `openvfife::BaseIntegrator` | Supported spatial quadrature base |
++| `GaussLegendre` | `openvfife::GaussLegendre` | Supported |
++| `GaussLobatto` | `openvfife::GaussLobatto` | Supported |
++
++The new filename deliberately says `quadrature`, because these classes are
++spatial integration rules and not the solver time integrator.
++
++### `headers/gridsection.h` → `<openvfife/section/grid_section.hpp>`
++
++| Current spelling | R1 spelling | Status |
++| --- | --- | --- |
++| `SectionPoint` | `openvfife::SectionPoint` | Experimental |
++| `CellNodes` | `openvfife::CellNodes` | Experimental |
++| `SectionGridParameter` | `openvfife::SectionGridParameter` | Experimental |
++| `SectionCell` | `openvfife::SectionCell` | Experimental |
++| `SectionResponse` | `openvfife::SectionResponse` | Experimental |
++| `SectionGrid` | `openvfife::SectionGrid` | Experimental |
++| `RectangleGrid` | `openvfife::RectangleGrid` | Experimental |
++| `AngleSteelGrid` | `openvfife::AngleSteelGrid` | Experimental |
++| `CreateGrid` | `openvfife::CreateGrid` | Experimental |
++
++This header is not in the initial supported umbrella. It remains available for
++explicit experimental use while #51 records the continuum/section integration
++boundary.
++
++### `headers/element.h` → `<openvfife/element/element.hpp>`
++
++| Current spelling | R1 spelling | Status |
++| --- | --- | --- |
++| `Strain` | `openvfife::Strain` | Supported for current element output contract |
++| `Stress` | `openvfife::Stress` | Supported for current element output contract |
++| `ElementForce` | `openvfife::ElementForce` | Supported for current frame/link output contract |
++| `BaseElement` | `openvfife::BaseElement` | Supported base; #43 contract refinement pending |
++| `StructElement` | `openvfife::StructElement` | Supported structural base |
++| `PlaneElement` | `openvfife::PlaneElement` | Unimplemented scaffolding; not documented as usable |
++| `SolidElement` | `openvfife::SolidElement` | Unimplemented scaffolding; not documented as usable |
++| `Link2D` | `openvfife::Link2D` | Supported |
++| `Link2DLD` | `openvfife::Link2DLD` | Experimental |
++| `Link3D` | `openvfife::Link3D` | Experimental |
++| `Link3DLD` | `openvfife::Link3DLD` | Experimental |
++| `Beam2D` | `openvfife::Beam2D` | Supported |
++| `Beam3D` | `openvfife::Beam3D` | Supported |
++
++`ShellTri3` and `SolidTet4` do **not** appear in this migration table because they
++are not on the modern baseline. They remain separately inventoried feature-branch
++work until #43/#45/#51 define an accepted integration path.
++
++### `headers/structsystem.h` → `<openvfife/solver/struct_system.hpp>`
++
++| Current spelling | R1 spelling | Status |
++| --- | --- | --- |
++| `StructSystem` | `openvfife::StructSystem` | Supported |
++| `isFileExists` | no installed public symbol | Internal filesystem helper |
++| `isDirExists` | no installed public symbol | Internal filesystem helper |
++| `makedir` | no installed public symbol | Internal filesystem helper |
++
++#46 may move writer/configuration helpers behind an I/O adapter. It must preserve
++existing supported output schemas unless an explicit migration is separately
++approved.
++
++### `headers/config.hpp`
++
++`Config` is **not** included in the installed public API during R1. The current
++header defines ordinary non-inline functions and stream operators, so including it
++from multiple translation units risks ODR/multiple-definition failures. #46 owns
++splitting definitions into implementation code or removing/replacing the legacy
++utility if it remains unused.
++
++## Include migration examples
++
++### Before
++
++```cpp
++#include "../../headers/structsystem.h"
++#include "../../headers/material.h"
++
++StructSystem system(1);
++LinearElastic steel(1);
++```
++
++### After #42
++
++```cpp
++#include <openvfife/material/material.hpp>
++#include <openvfife/solver/struct_system.hpp>
++
++openvfife::StructSystem system(1);
++openvfife::LinearElastic steel(1);
++```
++
++or, for a consumer that intentionally accepts the supported umbrella surface:
++
++```cpp
++#include <openvfife/openvfife.hpp>
++
++openvfife::StructSystem system(1);
++```
++
++## Repository callers that must migrate
++
++#42/#48/#50 must update all repository-owned callers rather than relying on
++compatibility aliases:
++
++- `src/*.cpp` relative header includes;
++- `tests/*.cpp`, including frozen-oracle probes;
++- `wasm/vfife_shim.cpp` when it moves to `bindings/wasm/`;
++- native and sanitizer build scripts until #41 replaces source-list ownership
++  with canonical CMake targets;
++- examples and user/developer documentation;
++- any browser/WASM build script that names old source paths.
++
++Generated WASM artifacts are not evidence of successful migration. #48 must build
++fresh artifacts from the new canonical library target and exercise the worker
++contract.
++
++## Source/ABI compatibility
++
++The historical public line is 1.x (`README.md` refers to version 1.0 and
++`WIKI.md` records v1.02). Changing both include prefixes and the C++ namespace is
++a deliberate source break. R1 therefore:
++
++- does not promise source compatibility with the historical global namespace;
++- does not promise binary ABI compatibility;
++- should use a new major public compatibility line if released (for example a
++  2.x line, with pre-releases while the migration is being integrated);
++- gives experimental declarations no stability guarantee;
++- keeps current class names during the move to make mechanical migration obvious
++  and reviewable.
++
++## Acceptance checks for the eventual move
++
++The migration is not complete merely because repository sources compile. Later
++issues must prove, at one exact SHA:
++
++1. each installed public header compiles independently;
++2. a relocated external two-translation-unit consumer uses only the installed
++   package and `openVFIFE::openvfife`;
++3. the install remains usable after moving the prefix;
++4. Eigen headers remain available to downstream public signatures offline;
++5. native fixtures, 183-value and 309-value frozen parity, and ASan/UBSan stay
++   green;
++6. WASM is freshly rebuilt from the canonical target and worker smoke checks pass;
++7. documented examples compile against the new public include prefix.
+\ No newline at end of file
