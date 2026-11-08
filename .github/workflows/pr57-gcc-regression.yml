@@ -36,6 +36,7 @@ jobs:
       - name: Verify mirrored final PR57 source subset
         run: |
           set -euo pipefail
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
           actual="$(git rev-parse HEAD:mirror)"
           echo "ORIGIN_PR_HEAD=$ORIGIN_PR_HEAD"
           echo "MIRROR_TREE=$actual"
