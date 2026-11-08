@@ -1,4 +1,4 @@
-name: PR57 GCC 14 regression after Clang fixes
+name: PR57 GCC 14.2.0 regression after Clang fixes
 
 on:
   pull_request:
@@ -8,13 +8,22 @@ on:
       - ".validation/pr57-gcc-trigger.txt"
 
 jobs:
-  gcc14-regression:
+  gcc142-regression:
     runs-on: ubuntu-latest
+    container:
+      image: gcc:14.2.0
     env:
       ORIGIN_PR_HEAD: 8798f6b4cbaca6dc09ed244b0962c6a159c9c484
       MIRROR_TREE: 4a56a0c64efe5f314b0566c450a987ed7d8d1f1b
       EIGEN_TREE: 3a87d0dab1c11e5ca0a260a372ad9e2a07759e5d
     steps:
+      - name: Install validation support tools
+        run: |
+          set -euo pipefail
+          apt-get update
+          DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            ca-certificates curl git cmake ninja-build python3
+
       - name: Checkout exact hosted mirror head
         uses: actions/checkout@v4
         with:
@@ -48,43 +57,41 @@ jobs:
           mkdir -p "$GITHUB_WORKSPACE/mirror/headers"
           cp -a Eigen "$GITHUB_WORKSPACE/mirror/headers/Eigen"
 
-      - name: Record GCC 14 toolchain versions
+      - name: Record exact GCC 14.2.0 toolchain versions
         run: |
           set -euo pipefail
-          command -v gcc-14
-          command -v g++-14
-          gcc-14 --version
-          g++-14 --version
+          gcc --version
+          g++ --version
           cmake --version
           ninja --version
           python3 --version
 
-      - name: Configure GCC 14 native regression build
+      - name: Configure GCC 14.2.0 native regression build
         working-directory: mirror
         run: |
           set -euo pipefail
-          rm -rf build-gcc14
-          CC=gcc-14 CXX=g++-14 \
-          cmake -S . -B build-gcc14 -G Ninja \
+          rm -rf build-gcc142
+          CC=gcc CXX=g++ \
+          cmake -S . -B build-gcc142 -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
             -DOPENVFIFE_ENABLE_HARDENING=ON \
             -DOPENVFIFE_ENABLE_SANITIZERS=OFF \
             -DOPENVFIFE_WARNINGS_AS_ERRORS=ON
 
-      - name: Public header smoke with GCC 14
+      - name: Public header smoke with GCC 14.2.0
         working-directory: mirror
         run: |
           set -euo pipefail
-          cmake --build build-gcc14 --target openvfife_public_header_smoke --parallel 2
+          cmake --build build-gcc142 --target openvfife_public_header_smoke --parallel 2
 
-      - name: Full GCC 14 native build
+      - name: Full GCC 14.2.0 native build
         working-directory: mirror
         run: |
           set -euo pipefail
-          cmake --build build-gcc14 --parallel 2
+          cmake --build build-gcc142 --parallel 2
 
-      - name: Full GCC 14 CTest including frozen parity
+      - name: Full GCC 14.2.0 CTest including frozen parity
         working-directory: mirror
         run: |
           set -euo pipefail
-          ctest --test-dir build-gcc14 --output-on-failure
+          ctest --test-dir build-gcc142 --output-on-failure
