@@ -13,20 +13,20 @@ class PlaneElement: public BaseElement
     private:
 
     protected:
-        virtual void setParticleDof()=0;
-        virtual void setParticleMass()=0;
-        virtual void calcOrientVector()=0;
-        virtual void calcElementForce()=0;
+        void setParticleDof() override = 0;
+        void setParticleMass() override = 0;
+        void calcOrientVector() override = 0;
+        void calcElementForce() override = 0;
 
     public:
         PlaneElement(int id, std::vector<Particle*> ps, BaseMaterial* mat,
             BaseSection* sect);
         ~PlaneElement() override = default;
-        virtual double calcCriticalTimeStep()=0;
-        virtual void setParticleForce()=0;
-        virtual void outputForce(std::fstream &fout)=0;
-        virtual void outputStress(std::fstream &fout)=0;
-        virtual void outputStrain(std::fstream &fout)=0;
+        double calcCriticalTimeStep() override = 0;
+        void setParticleForce() override = 0;
+        void outputForce(std::fstream &fout) override = 0;
+        void outputStress(std::fstream &fout) override = 0;
+        void outputStrain(std::fstream &fout) override = 0;
 };
 
 class SolidElement: public BaseElement
@@ -35,20 +35,20 @@ class SolidElement: public BaseElement
     private:
 
     protected:
-        virtual void setParticleDof()=0;
-        virtual void setParticleMass()=0;
-        virtual void calcOrientVector()=0;
-        virtual void calcElementForce()=0;
+        void setParticleDof() override = 0;
+        void setParticleMass() override = 0;
+        void calcOrientVector() override = 0;
+        void calcElementForce() override = 0;
 
     public:
         SolidElement(int id, std::vector<Particle*> ps, const BaseMaterial* mat,
             const BaseSection* sect);
         ~SolidElement() override = default;
-        virtual double calcCriticalTimeStep()=0;
-        virtual void setParticleForce()=0;
-        virtual void outputForce(std::fstream &fout)=0;
-        virtual void outputStress(std::fstream &fout)=0;
-        virtual void outputStrain(std::fstream &fout)=0;
+        double calcCriticalTimeStep() override = 0;
+        void setParticleForce() override = 0;
+        void outputForce(std::fstream &fout) override = 0;
+        void outputStress(std::fstream &fout) override = 0;
+        void outputStrain(std::fstream &fout) override = 0;
 };
 
 class Link2DLD:public Link2D
@@ -65,8 +65,8 @@ class Link2DLD:public Link2D
         UniaxialMaterialState material_state_;
 
     protected:
-        virtual void calcOrientVector();
-        virtual void calcElementForce();
+        void calcOrientVector() override;
+        void calcElementForce() override;
 
     public:
         Link2DLD(int id, Particle& pi, Particle& pj, const BaseMaterial& mat,
@@ -80,16 +80,16 @@ class Link3D: public StructElement
         const StdArray6d* posi_;
         const StdArray6d* posj_;
 
-        virtual void setParticleDof();
-        virtual void setParticleMass();
-        virtual void calcOrientVector();
-        virtual void calcElementForce();
+        void setParticleDof() override;
+        void setParticleMass() override;
+        void calcOrientVector() override;
+        void calcElementForce() override;
 
     public:
         Link3D(int id, Particle& pi, Particle& pj, const BaseMaterial& mat,
             const BaseSection& sect);
         ~Link3D() override = default;
-        virtual void outputForce(std::fstream &fout);
+        void outputForce(std::fstream &fout) override;
 };
 
 class Link3DLD:public Link3D
@@ -106,8 +106,8 @@ class Link3DLD:public Link3D
         UniaxialMaterialState material_state_;
 
     protected:
-        virtual void calcOrientVector();
-        virtual void calcElementForce();
+        void calcOrientVector() override;
+        void calcElementForce() override;
 
     public:
         Link3DLD(int id, Particle& pi, Particle& pj, const BaseMaterial& mat,

@@ -105,10 +105,10 @@ class StructElement: public BaseElement
         double lt_{}, la_{};
         ElementForce element_force_{};
 
-        virtual void setParticleDof()=0;
-        virtual void setParticleMass()=0;
-        virtual void calcOrientVector()=0;
-        virtual void calcElementForce()=0;
+        void setParticleDof() override = 0;
+        void setParticleMass() override = 0;
+        void calcOrientVector() override = 0;
+        void calcElementForce() override = 0;
 
     public:
         StructElement(int id, Particle& pi, Particle& pj,
@@ -117,12 +117,12 @@ class StructElement: public BaseElement
         double length() const;
         double current_length() const;
         [[nodiscard]] const ElementForce& element_force() const noexcept;
-        virtual double calcCriticalTimeStep();
-        virtual void setParticleForce();
+        double calcCriticalTimeStep() override;
+        void setParticleForce() override;
         // virtual void kill()=0;
-        virtual void outputForce(std::fstream &fout);
-        virtual void outputStress(std::fstream &fout);
-        virtual void outputStrain(std::fstream &fout);
+        void outputForce(std::fstream &fout) override;
+        void outputStress(std::fstream &fout) override;
+        void outputStrain(std::fstream &fout) override;
 };
 
 } // namespace openvfife

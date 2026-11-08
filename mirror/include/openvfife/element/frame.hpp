@@ -10,16 +10,16 @@ class Link2D:public StructElement
         const StdArray6d* posi_;
         const StdArray6d* posj_;
 
-        virtual void setParticleDof();
-        virtual void setParticleMass();
-        virtual void calcOrientVector();
-        virtual void calcElementForce();
+        void setParticleDof() override;
+        void setParticleMass() override;
+        void calcOrientVector() override;
+        void calcElementForce() override;
 
     public:
         Link2D(int id, Particle& pi, Particle& pj, const BaseMaterial& mat,
                const BaseSection& sect);
         ~Link2D() override = default;
-        virtual void outputForce(std::fstream &fout);
+        void outputForce(std::fstream &fout) override;
 };
 
 class Beam2D:public StructElement
@@ -61,10 +61,10 @@ class Beam2D:public StructElement
         double elem_rotation_angle_;
 
         inline void initiateStiffnessMatrix();
-        virtual void setParticleDof();
-        virtual void setParticleMass();
-        virtual void calcOrientVector();
-        virtual void calcElementForce();
+        void setParticleDof() override;
+        void setParticleMass() override;
+        void calcOrientVector() override;
+        void calcElementForce() override;
 
     public:
         Beam2D(int id, Particle& pi, Particle& pj, const BaseMaterial& mat,
@@ -73,10 +73,10 @@ class Beam2D:public StructElement
         [[nodiscard]] const ElementForce& end_force_i() const noexcept;
         [[nodiscard]] const ElementForce& end_force_j() const noexcept;
         double rotation_angle() const;
-        virtual double calcCriticalTimeStep();
-        virtual void outputForce(std::fstream &fout);
-        virtual void outputStress(std::fstream &fout);
-        virtual void outputStrain(std::fstream &fout);
+        double calcCriticalTimeStep() override;
+        void outputForce(std::fstream &fout) override;
+        void outputStress(std::fstream &fout) override;
+        void outputStrain(std::fstream &fout) override;
 };
 
 class Beam3D:public StructElement
@@ -140,10 +140,10 @@ class Beam3D:public StructElement
 
         inline void initiateBeam3D();
 
-        virtual void setParticleDof();
-        virtual void setParticleMass();
-        virtual void calcOrientVector();
-        virtual void calcElementForce();
+        void setParticleDof() override;
+        void setParticleMass() override;
+        void calcOrientVector() override;
+        void calcElementForce() override;
 
     public:
         // create spatial Beam with default reference node (0, 0, 1)
@@ -155,10 +155,10 @@ class Beam3D:public StructElement
         ~Beam3D() override = default;
         [[nodiscard]] const ElementForce& end_force_i() const noexcept;
         [[nodiscard]] const ElementForce& end_force_j() const noexcept;
-        virtual double calcCriticalTimeStep();
-        virtual void outputForce(std::fstream &fout);
-        virtual void outputStress(std::fstream &fout);
-        virtual void outputStrain(std::fstream &fout);
+        double calcCriticalTimeStep() override;
+        void outputForce(std::fstream &fout) override;
+        void outputStress(std::fstream &fout) override;
+        void outputStrain(std::fstream &fout) override;
 };
 
 } // namespace openvfife
