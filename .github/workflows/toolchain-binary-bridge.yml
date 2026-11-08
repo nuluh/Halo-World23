@@ -17,37 +17,35 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p toolchains
+          mkdir -p toolchains/chunks
           curl -fL --retry 5 --retry-delay 2 \
             -o toolchains/LLVM-23.1.5-Linux-X64.tar.zst \
             "https://github.com/llvm/llvm-project/releases/download/llvmorg-23.1.5/LLVM-23.1.5-Linux-X64.tar.zst"
           echo "c3107384835f788768f614db610e87fba7077f125ca950eb02a78bab0a308065  toolchains/LLVM-23.1.5-Linux-X64.tar.zst" | sha256sum -c -
+          split -b 400M -d -a 2 toolchains/LLVM-23.1.5-Linux-X64.tar.zst toolchains/chunks/llvm.part-
+          ls -lh toolchains/chunks
+          test "$(ls toolchains/chunks/llvm.part-* | wc -l)" -eq 3
 
-      - name: Download and verify Emscripten SDK 7.0.0 binary bundle
-        shell: bash
-        run: |
-          set -euo pipefail
-          curl -fL --retry 5 --retry-delay 2 \
-            -o toolchains/emscripten-7.0.0-linux-x64.tar.xz \
-            "https://storage.googleapis.com/webassembly/emscripten-releases-builds/linux/6afbd83493d647051772d491124187d4e9a0cda9/wasm-binaries.tar.xz"
-          echo "6e7c6d26cf8bde31e6cf6a377c113f913cb2d30f4c2d671c1042e1c4bcd16495  toolchains/emscripten-7.0.0-linux-x64.tar.xz" | sha256sum -c -
-
-      - name: Show archive sizes
-        shell: bash
-        run: ls -lh toolchains
-
-      - name: Upload LLVM archive
+      - name: Upload LLVM chunk 00
         uses: actions/upload-artifact@v4
         with:
-          name: llvm-23.1.5-linux-x64
-          path: toolchains/LLVM-23.1.5-Linux-X64.tar.zst
+          name: llvm-23.1.5-linux-x64-part-00
+          path: toolchains/chunks/llvm.part-00
           compression-level: 0
           retention-days: 1
 
-      - name: Upload Emscripten archive
+      - name: Upload LLVM chunk 01
         uses: actions/upload-artifact@v4
         with:
-          name: emscripten-7.0.0-linux-x64
-          path: toolchains/emscripten-7.0.0-linux-x64.tar.xz
+          name: llvm-23.1.5-linux-x64-part-01
+          path: toolchains/chunks/llvm.part-01
+          compression-level: 0
+          retention-days: 1
+
+      - name: Upload LLVM chunk 02
+        uses: actions/upload-artifact@v4
+        with:
+          name: llvm-23.1.5-linux-x64-part-02
+          path: toolchains/chunks/llvm.part-02
           compression-level: 0
           retention-days: 1
