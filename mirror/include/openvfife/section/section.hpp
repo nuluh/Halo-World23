@@ -78,21 +78,21 @@ class CustomSection: public BaseSection
     *   Iyz - inertial product
     */
     protected:
-        virtual void calcArea();
-        virtual void calcSy();
-        virtual void calcSz();
-        virtual void calcCGy();
-        virtual void calcCGz();
-        virtual void calcSHy();
-        virtual void calcSHz();
-        virtual void calcIyy();
-        virtual void calcIzz();
-        virtual void calcIyz();
+        void calcArea() override;
+        void calcSy() override;
+        void calcSz() override;
+        void calcCGy() override;
+        void calcCGz() override;
+        void calcSHy() override;
+        void calcSHz() override;
+        void calcIyy() override;
+        void calcIzz() override;
+        void calcIyz() override;
 
     public:
         CustomSection(int id, const CustomSectionParas &paras);
         ~CustomSection() override = default;
-        virtual void info() const;
+        void info() const override;
 };
 
 class Rectangle: public BaseSection
@@ -119,23 +119,23 @@ class Rectangle: public BaseSection
         double height_;
 
     protected:
-        virtual void calcArea();
-        virtual void calcSy();
-        virtual void calcSz();
-        virtual void calcCGy();
-        virtual void calcCGz();
-        virtual void calcSHy();
-        virtual void calcSHz();
-        virtual void calcIyy();
-        virtual void calcIzz();
-        virtual void calcIyz();
+        void calcArea() override;
+        void calcSy() override;
+        void calcSz() override;
+        void calcCGy() override;
+        void calcCGz() override;
+        void calcSHy() override;
+        void calcSHz() override;
+        void calcIyy() override;
+        void calcIzz() override;
+        void calcIyz() override;
 
     public:
         Rectangle(int id, double width, double height);
         ~Rectangle() override = default;
         double width() const;
         double height() const;
-        virtual void info() const;
+        void info() const override;
 };
 
 } // namespace openvfife

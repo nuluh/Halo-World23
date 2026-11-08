@@ -26,23 +26,23 @@ class Ctube: public BaseSection
         double ro_;
 
     protected:
-        virtual void calcArea();
-        virtual void calcSy();
-        virtual void calcSz();
-        virtual void calcCGy();
-        virtual void calcCGz();
-        virtual void calcSHy();
-        virtual void calcSHz();
-        virtual void calcIyy();
-        virtual void calcIzz();
-        virtual void calcIyz();
+        void calcArea() override;
+        void calcSy() override;
+        void calcSz() override;
+        void calcCGy() override;
+        void calcCGz() override;
+        void calcSHy() override;
+        void calcSHz() override;
+        void calcIyy() override;
+        void calcIzz() override;
+        void calcIyz() override;
 
     public:
         Ctube(int id, double ri, double ro);
         ~Ctube() override = default;
         double ri() const;
         double ro() const;
-        virtual void info() const;
+        void info() const override;
 };
 
 class AngleSteel: public BaseSection
@@ -76,16 +76,16 @@ class AngleSteel: public BaseSection
         double t2_;
 
     protected:
-        virtual void calcArea();
-        virtual void calcSy();
-        virtual void calcSz();
-        virtual void calcCGy();
-        virtual void calcCGz();
-        virtual void calcSHy();
-        virtual void calcSHz();
-        virtual void calcIyy();
-        virtual void calcIzz();
-        virtual void calcIyz();
+        void calcArea() override;
+        void calcSy() override;
+        void calcSz() override;
+        void calcCGy() override;
+        void calcCGz() override;
+        void calcSHy() override;
+        void calcSHz() override;
+        void calcIyy() override;
+        void calcIzz() override;
+        void calcIyz() override;
 
     public:
         AngleSteel(int id, double w1, double w2, double t1, double t2);
@@ -94,7 +94,7 @@ class AngleSteel: public BaseSection
         double w2() const;
         double t1() const;
         double t2() const;
-        virtual void info() const;
+        void info() const override;
 };
 
 } // namespace openvfife
