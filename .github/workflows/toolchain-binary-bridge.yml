@@ -1,0 +1,53 @@
+name: toolchain-binary-bridge
+
+on:
+  push:
+    paths:
+      - ".github/workflows/toolchain-binary-bridge.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  bridge:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Download and verify LLVM 23.1.5
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p toolchains
+          curl -fL --retry 5 --retry-delay 2 \
+            -o toolchains/LLVM-23.1.5-Linux-X64.tar.zst \
+            "https://github.com/llvm/llvm-project/releases/download/llvmorg-23.1.5/LLVM-23.1.5-Linux-X64.tar.zst"
+          echo "c3107384835f788768f614db610e87fba7077f125ca950eb02a78bab0a308065  toolchains/LLVM-23.1.5-Linux-X64.tar.zst" | sha256sum -c -
+
+      - name: Download and verify Emscripten SDK 7.0.0 binary bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fL --retry 5 --retry-delay 2 \
+            -o toolchains/emscripten-7.0.0-linux-x64.tar.xz \
+            "https://storage.googleapis.com/webassembly/emscripten-releases-builds/linux/6afbd83493d647051772d491124187d4e9a0cda9/wasm-binaries.tar.xz"
+          echo "6e7c6d26cf8bde31e6cf6a377c113f913cb2d30f4c2d671c1042e1c4bcd16495  toolchains/emscripten-7.0.0-linux-x64.tar.xz" | sha256sum -c -
+
+      - name: Show archive sizes
+        shell: bash
+        run: ls -lh toolchains
+
+      - name: Upload LLVM archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: llvm-23.1.5-linux-x64
+          path: toolchains/LLVM-23.1.5-Linux-X64.tar.zst
+          compression-level: 0
+          retention-days: 1
+
+      - name: Upload Emscripten archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: emscripten-7.0.0-linux-x64
+          path: toolchains/emscripten-7.0.0-linux-x64.tar.xz
+          compression-level: 0
+          retention-days: 1
