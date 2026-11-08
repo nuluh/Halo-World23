@@ -1,0 +1,2834 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index eb91c11..8544318 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -28,13 +28,13 @@ target_include_directories(openvfife_eigen INTERFACE
+ )
+ 
+ set(OPENVFIFE_CORE_SOURCES
+-    src/element.cpp
+-    src/gridsection.cpp
+-    src/integrator.cpp
+-    src/material.cpp
+-    src/particle.cpp
+-    src/section.cpp
+-    src/structsystem.cpp
++    src/core/particle.cpp
++    src/numerics/quadrature.cpp
++    src/material/material.cpp
++    src/section/section.cpp
++    src/section/grid_section.cpp
++    src/element/element.cpp
++    src/solver/struct_system.cpp
+ )
+ 
+ add_library(openvfife STATIC ${OPENVFIFE_CORE_SOURCES})
+@@ -42,7 +42,7 @@ add_library(openVFIFE::openvfife ALIAS openvfife)
+ 
+ target_compile_features(openvfife PUBLIC cxx_std_20)
+ target_include_directories(openvfife PUBLIC
+-    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/headers>
++    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+ )
+ target_link_libraries(openvfife PUBLIC openVFIFE::eigen)
+ 
+@@ -104,6 +104,36 @@ if(BUILD_TESTING)
+         openvfife_apply_sanitizer_link_options(${target})
+     endfunction()
+ 
++    # Each intended public header must compile as the only openVFIFE include in its TU.
++    set(OPENVFIFE_PUBLIC_HEADERS
++        openvfife/core/types.hpp
++        openvfife/core/particle.hpp
++        openvfife/numerics/quadrature.hpp
++        openvfife/material/uniaxial.hpp
++        openvfife/material/experimental.hpp
++        openvfife/section/section.hpp
++        openvfife/section/experimental.hpp
++        openvfife/section/grid_section.hpp
++        openvfife/element/base.hpp
++        openvfife/element/frame.hpp
++        openvfife/element/experimental.hpp
++        openvfife/solver/struct_system.hpp
++        openvfife/openvfife.hpp
++    )
++    set(OPENVFIFE_HEADER_SMOKE_TARGETS)
++    foreach(public_header IN LISTS OPENVFIFE_PUBLIC_HEADERS)
++        string(REPLACE "/" "_" header_target "${public_header}")
++        string(REPLACE "." "_" header_target "${header_target}")
++        set(header_source "${CMAKE_CURRENT_BINARY_DIR}/header_smoke_${header_target}.cpp")
++        file(WRITE "${header_source}" "#include <${public_header}>\n")
++        add_library(header_smoke_${header_target} OBJECT "${header_source}")
++        target_link_libraries(header_smoke_${header_target} PRIVATE openVFIFE::openvfife)
++        target_compile_features(header_smoke_${header_target} PRIVATE cxx_std_20)
++        openvfife_apply_project_compile_options(header_smoke_${header_target})
++        list(APPEND OPENVFIFE_HEADER_SMOKE_TARGETS header_smoke_${header_target})
++    endforeach()
++    add_custom_target(openvfife_public_header_smoke DEPENDS ${OPENVFIFE_HEADER_SMOKE_TARGETS})
++
+     function(openvfife_register_native_test target)
+         add_test(NAME ${target} COMMAND ${target})
+         set_tests_properties(${target} PROPERTIES
+@@ -138,6 +168,34 @@ if(BUILD_TESTING)
+     openvfife_apply_project_compile_options(test_shim)
+     openvfife_apply_sanitizer_link_options(test_shim)
+ 
++    add_executable(test_public_consumer
++        tests/consumer/public_consumer_main.cpp
++        tests/consumer/public_consumer_model.cpp
++    )
++    target_link_libraries(test_public_consumer PRIVATE openVFIFE::openvfife)
++    target_compile_features(test_public_consumer PRIVATE cxx_std_20)
++    openvfife_apply_project_compile_options(test_public_consumer)
++    openvfife_apply_sanitizer_link_options(test_public_consumer)
++    openvfife_register_native_test(test_public_consumer)
++
++    if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
++        foreach(surface_header IN ITEMS
++            openvfife/openvfife.hpp
++            openvfife/solver/struct_system.hpp
++        )
++            string(REPLACE "/" "_" surface_name "${surface_header}")
++            string(REPLACE "." "_" surface_name "${surface_name}")
++            add_test(NAME include_surface_${surface_name}
++                COMMAND ${Python3_EXECUTABLE}
++                    ${CMAKE_CURRENT_SOURCE_DIR}/tests/check_public_include_surface.py
++                    --compiler ${CMAKE_CXX_COMPILER}
++                    --source-dir ${CMAKE_CURRENT_SOURCE_DIR}
++                    --header ${surface_header}
++            )
++            set_tests_properties(include_surface_${surface_name} PROPERTIES LABELS "native")
++        endforeach()
++    endif()
++
+     openvfife_add_test_executable(fortran_parity_probe tests/fortran_parity_probe.cpp)
+     openvfife_add_test_executable(frame_progression_probe tests/frame_progression_probe.cpp)
+ 
+diff --git a/WIKI.md b/WIKI.md
+index 11866c4..00c7802 100644
+--- a/WIKI.md
++++ b/WIKI.md
+@@ -216,30 +216,31 @@ platform matters.
+ ## 8. Project Directory
+ 
+ ```
+-/home/dam/code/project-nonlinear/openvfife-core/
+-├── src/                    # C++ source (7 files, ~4,600 lines total)
+-│   ├── element.cpp         (591 lines)
+-│   ├── gridsection.cpp     (611 lines)
+-│   ├── integrator.cpp      (501 lines)
+-│   ├── material.cpp        (621 lines)
+-│   ├── particle.cpp        (685 lines)
+-│   ├── section.cpp         (549 lines)
+-│   └── structsystem.cpp    (1,051 lines)
+-├── headers/                # C++ headers + Eigen
+-│   ├── config.hpp          (343 lines)
+-│   ├── element.h           (432 lines)
+-│   ├── gridsection.h       (290 lines)
+-│   ├── integrator.h        (116 lines)
+-│   ├── material.h          (233 lines)
+-│   ├── particle.h          (179 lines)
+-│   ├── section.h           (266 lines)
+-│   ├── structsystem.h      (142 lines)
+-│   └── Eigen/              ← NEEDS: git clone https://gitlab.com/libeigen/eigen
++project-nonlinear/
++├── include/openvfife/      # canonical public C++ headers
++│   ├── core/               # shared types, particles and DOF conventions
++│   ├── numerics/           # spatial quadrature
++│   ├── material/           # supported + explicit experimental materials
++│   ├── section/            # sections and section-grid integration
++│   ├── element/            # base, frame and experimental element families
++│   ├── solver/             # StructSystem ownership/solver API
++│   └── openvfife.hpp       # supported-only umbrella
++├── src/                    # implementation grouped by the same modules
++│   ├── core/
++│   ├── numerics/
++│   ├── material/
++│   ├── section/
++│   ├── element/
++│   └── solver/
++├── headers/
++│   ├── config.hpp          # legacy support utility; not public API
++│   └── Eigen/              # vendored Eigen 3.4.0 dependency
++├── wasm/                   # temporary binding location until #48
++├── tests/
+ ├── examples/
+-│   └── openVFIFE_examples.md   (6 annotated examples)
++├── CMakeLists.txt
+ ├── README.md
+-├── LICENSE                    (GPL-3.0)
++├── LICENSE
+ ├── COPYRIGHT
+-├── .gitignore
+-└── WIKI.md                    ← this file
++└── WIKI.md
+ ```
+\ No newline at end of file
+diff --git a/docs/architecture/r1-migration-map.md b/docs/architecture/r1-migration-map.md
+index f46e968..6d06568 100644
+--- a/docs/architecture/r1-migration-map.md
++++ b/docs/architecture/r1-migration-map.md
+@@ -35,8 +35,7 @@ belong so #41/#42 can execute without redesigning the API during mechanical edit
+ | `headers/config.hpp` | header-only ordinary/template definitions | `examples/support/config.hpp` (**not installed**) | header-only support utility; #46 makes ordinary non-template definitions `inline` | Internal example/support only |
+ | n/a | `wasm/vfife_shim.cpp` | n/a | `bindings/wasm/vfife_shim.cpp` | Binding/internal C++ implementation; exported C ABI handled by #48 |
+ 
+-The mapping intentionally splits headers where capability status requires an actual
+-include boundary, but it does not mechanically create one file per class. Material,
++The mapping is implemented by #42: capability status is an actual include boundary, but it does not mechanically create one file per class. Material,
+ section, and element implementations may remain in coherent compiled translation
+ units during R1.
+ 
+diff --git a/docs/user_manual.md b/docs/user_manual.md
+index eefb4ea..040f083 100644
+--- a/docs/user_manual.md
++++ b/docs/user_manual.md
+@@ -35,7 +35,7 @@ Consider a single bar structure(as shown in the following figure) , the length $
+ <img src="https://gitee.com/ginkgoltd/pictures/raw/master/img/example2.jpg"/>
+ 
+ ``` c++
+-#include "../../headers/structsystem.h" // see ./examples/example2/example2.cpp
++#include <openvfife/openvfife.hpp> // see examples/openVFIFE_examples.md
+ #include <memory>
+ using namespace std;
+ 
+@@ -195,9 +195,9 @@ CustomSectionParas paras = {.A=1, .Sy=0, .Sz=0, .SHy=0, .SHz=0,
+ CustomSection sect = CustomSection(1, paras);
+ ```
+ 
+-`LinearElastic::LinearElastic(int id)` create a `LinearElastic` material object; `LinearElastic::setE(double val)`  and `LinearElastic::setDensity(double val)`  set the Young's modulus and density of the material respectively. [openVFIFE](https://ginkgoltd.github.io/) also provide `UniIdeal` and `UniBilinear` for uniaxial rate-independent plastic material, you can read the headers in `./headers/material` directory. 
++`LinearElastic::LinearElastic(int id)` create a `LinearElastic` material object; `LinearElastic::setE(double val)`  and `LinearElastic::setDensity(double val)`  set the Young's modulus and density of the material respectively. [openVFIFE](https://ginkgoltd.github.io/) also provide `UniIdeal` and `UniBilinear` for uniaxial rate-independent plastic material, the experimental material declarations are available from `<openvfife/material/experimental.hpp>`.
+ 
+-`CustomSetcion::CustomSection(int id, const CustomSectionParas &para)`  create a `CustomSection` object, which means you can assign the section characteristics. [openVFIFE](https://ginkgoltd.github.io/) also provide `Rectangle`, `AngleSteel` and `Ctube` sections,  you can read the headers in `./headers/section` directory. 
++`CustomSetcion::CustomSection(int id, const CustomSectionParas &para)`  create a `CustomSection` object, which means you can assign the section characteristics. [openVFIFE](https://ginkgoltd.github.io/) also provide `Rectangle`, `AngleSteel` and `Ctube` sections,  the experimental section declarations are available from `<openvfife/section/experimental.hpp>`.
+ 
+ ### step 4: create **Elements** 
+ 
+diff --git a/examples/openVFIFE_examples.md b/examples/openVFIFE_examples.md
+index 3ac670e..931e700 100644
+--- a/examples/openVFIFE_examples.md
++++ b/examples/openVFIFE_examples.md
+@@ -12,9 +12,12 @@ openVFIFE is quite simple and intuitive. The basic procedures of a calculation i
+ the pseudocodes for the procesdure
+ 
+ ``` c++
+-#include "structsystem.h"	// using openVFIFE
++#include <openvfife/openvfife.hpp>
++#include <openvfife/element/experimental.hpp>
+ #include <memory>
+ 
++using namespace openvfife;
++
+ StructSystem system(id);                         // system owns transferred objects
+ // ... system setting
+ auto particle = std::make_unique<Particle>(id, x, y, z);
+@@ -90,8 +93,11 @@ $$
+ In openVFIFE, you can solve the problem by the following code(see `./examples/example1/example1.cpp`)
+ 
+ ```c++
+-#include "../../headers/structsystem.h"
++#include <openvfife/openvfife.hpp>
++#include <openvfife/element/experimental.hpp>
+ #include <memory>
++
++using namespace openvfife;
+ using namespace std;
+ 
+ int main()
+@@ -155,8 +161,7 @@ int main()
+     }
+ 
+     return 0;
+-}
+-```
++}```
+ 
+ and compile this code by
+ 
+@@ -208,9 +213,12 @@ Fig.2. You Can Read It
+ source code, see `./examples/example2/example2.cpp`
+ 
+ ```c++
+-#include "../../headers/structsystem.h"
++#include <openvfife/openvfife.hpp>
++#include <openvfife/element/experimental.hpp>
+ #include <memory>
+ 
++using namespace openvfife;
++
+ using namespace std;
+ 
+ 
+@@ -300,8 +308,7 @@ int main()
+     }
+ 
+     return 0;
+-}
+-```
++}```
+ 
+ 
+ 
+@@ -361,8 +368,11 @@ $$
+ Codes: (see `./examples/example3/example3.cpp`)
+ 
+ ```c++
+-#include "../../headers/structsystem.h"
++#include <openvfife/openvfife.hpp>
++#include <openvfife/element/experimental.hpp>
+ #include <memory>
++
++using namespace openvfife;
+ using namespace std;
+ 
+ int main()
+@@ -459,8 +469,7 @@ int main()
+     }
+ 
+     return 0;
+-}
+-```
++}```
+ 
+ 
+ 
+@@ -503,9 +512,12 @@ $P_2$ is always perpendicular to bar 1, and $P_v$ is always keep vertical.
+ codes, (see `./examples/example4/example4.cpp`)
+ 
+ ```c++
+-#include "../../headers/structsystem.h"
++#include <openvfife/openvfife.hpp>
++#include <openvfife/element/experimental.hpp>
+ #include <memory>
+ 
++using namespace openvfife;
++
+ using namespace std;
+ 
+ 
+@@ -626,8 +638,7 @@ int main()
+     }
+ 
+     return 0;
+-}
+-```
++}```
+ 
+ 
+ 
+@@ -646,8 +657,11 @@ Fig.9. example 5
+ codes, (see `./examples/example5/example5.cpp`)
+ 
+ ```c++
+-#include "../../headers/structsystem.h"
++#include <openvfife/openvfife.hpp>
++#include <openvfife/element/experimental.hpp>
+ #include <memory>
++
++using namespace openvfife;
+ using namespace std;
+ 
+ 
+@@ -745,8 +759,7 @@ int main()
+     }
+ 
+     return 0;
+-}
+-```
++}```
+ 
+ 
+ 
+@@ -767,9 +780,12 @@ Fig.11. structures
+ codes,  (see `./examples/example6/example6.cpp`)
+ 
+ ```c++
+-#include "../../headers/structsystem.h"
++#include <openvfife/openvfife.hpp>
++#include <openvfife/element/experimental.hpp>
+ #include <memory>
+ 
++using namespace openvfife;
++
+ using namespace std;
+ 
+ struct Point
+@@ -959,8 +975,7 @@ int main()
+     cout << "##### finished ######" << endl;
+ 
+     return 0;
+-}
+-```
++}```
+ 
+ 
+ 
+diff --git a/headers/element.h b/headers/element.h
+deleted file mode 100644
+index d80afc3..0000000
+--- a/headers/element.h
++++ /dev/null
+@@ -1,433 +0,0 @@
+-/* ************************************************************************* **
+-**    OpenVFIFE - Open System for Vector Form Instrinsic                     **
+-**                Finite Element Method (VFIFE)                              **
+-**                GinkGo(Tan Biao)                                           **
+-**                                                                           **
+-**                                                                           **
+-** (C) Copyright 2021, The GinkGo(Tan Biao). All Rights Reserved.            **
+-**                                                                           **
+-** Commercial use of this program without express permission of              **
+-** GinkGo(Tan Biao), is strictly prohibited.  See                            **
+-** file 'COPYRIGHT'  in main directory for information on usage and          **
+-** redistribution,  and for a DISCLAIMER OF ALL WARRANTIES.                  **
+-**                                                                           **
+-** Developed by:                                                             **
+-**      Tan Biao (ginkgoltd@outlook.com)                                     **
+-**                                                                           **
+-** ************************************************************************* */
+-
+-// $Date: 2021-06-07$
+-// Written: Tan Biao
+-// Revised:
+-//
+-// Purpose: This file contains the class definition for elements, including
+-// base class BaseElement (abstract base class), StructElement, PlaneElement,
+-// SolidElement, and several elements derived from StructElement - Link2D,
+-// Link2DLD, Link3D, Link3DLD, Beam2D and Beam3D.
+-
+-// The interface:
+-//
+-
+-#ifndef ELEMENT_H_
+-#define ELEMENT_H_
+-#include <vector>
+-#include <map>
+-// #include <vector>
+-#include <fstream>
+-#include "Eigen/Dense"
+-#include "particle.h"
+-#include "material.h"
+-#include "section.h"
+-#include "gridsection.h"
+-#include "integrator.h"
+-
+-typedef std::array<double, 3> StdArray3d;
+-struct Strain
+-{
+-    /* organize strain at one point, for outputing */
+-    double sx{}, sy{}, sz{};
+-    double sxy{}, syz{}, sxz{};
+-};
+-
+-struct Stress
+-{
+-    /* organize stress at one point, for outputing */
+-    double sx{}, sy{}, sz{};
+-    double sxy{}, syz{}, sxz{};
+-};
+-
+-struct ElementForce
+-{
+-    /* organize force of rod element, for outputing */
+-    double fx{};
+-    double sfy{}, sfz{};
+-    double mx{}, my{}, mz{};
+-};
+-
+-/* Sorry, I have no time to write a detailed comments for every element class.
+-* In fact, I am not very satisfied with the current framework. I will redesign
+-* openVFIFE after graduating. When the time comes, a detailed documentation
+-* will be released with new version of openVFIFE. Sorry again, there will be
+-* no comments of element classes.
+-*
+-*/
+-class BaseElement
+-{
+-    protected:
+-        int id_{};
+-        std::string type_{"BaseElement"};
+-        int num_of_particles_{1};
+-        std::map<int, Particle*> particles_;
+-        const BaseMaterial* material_{nullptr};
+-        const BaseSection* section_{nullptr};
+-        double mass_{};
+-        Strain strain_{};
+-        Stress stress_{};
+-        Eigen::Vector3d ex_{Eigen::Vector3d::Zero()};
+-        Eigen::Vector3d ey_{Eigen::Vector3d::Zero()};
+-        Eigen::Vector3d ez_{Eigen::Vector3d::Zero()};
+-        bool is_failed_{false};
+-
+-    protected:
+-        void addParticle(Particle* p);
+-        virtual void setParticleDof()=0;
+-        virtual void setParticleMass()=0;
+-        virtual void calcOrientVector()=0;
+-        virtual void calcElementForce()=0;
+-
+-    public:
+-        explicit BaseElement(int id);
+-        virtual ~BaseElement() = default;
+-
+-        virtual void info() const;
+-        int id() const;
+-        std::string type() const;
+-        int num_of_particles() const;
+-        [[nodiscard]] const std::map<int, Particle*>& particles() const noexcept;
+-        [[nodiscard]] const BaseMaterial& material() const noexcept;
+-        [[nodiscard]] const BaseSection& section() const noexcept;
+-        double mass() const;
+-        [[nodiscard]] const Eigen::Vector3d& ex() const noexcept;
+-        [[nodiscard]] const Eigen::Vector3d& ey() const noexcept;
+-        [[nodiscard]] const Eigen::Vector3d& ez() const noexcept;
+-        [[nodiscard]] const Strain& strain() const noexcept;
+-        [[nodiscard]] const Stress& stress() const noexcept;
+-        bool is_failed() const;
+-        virtual double calcCriticalTimeStep()=0;
+-        virtual void setParticleForce()=0;
+-        virtual void outputForce(std::fstream &fout)=0;
+-        virtual void outputStress(std::fstream &fout)=0;
+-        virtual void outputStrain(std::fstream &fout)=0;
+-};
+-
+-
+-class StructElement: public BaseElement
+-{
+-    private:
+-        inline void calcLength();
+-        inline void calcMass();
+-
+-    protected:
+-        Particle* pi_{nullptr};
+-        Particle* pj_{nullptr};
+-        StdArray6d fi_{};
+-        StdArray6d fj_{};
+-        double length_{};
+-        double lt_{}, la_{};
+-        ElementForce element_force_{};
+-
+-        virtual void setParticleDof()=0;
+-        virtual void setParticleMass()=0;
+-        virtual void calcOrientVector()=0;
+-        virtual void calcElementForce()=0;
+-
+-    public:
+-        StructElement(int id, Particle& pi, Particle& pj,
+-            const BaseMaterial& mat, const BaseSection& sect);
+-        ~StructElement() override = default;
+-        double length() const;
+-        double current_length() const;
+-        [[nodiscard]] const ElementForce& element_force() const noexcept;
+-        virtual double calcCriticalTimeStep();
+-        virtual void setParticleForce();
+-        // virtual void kill()=0;
+-        virtual void outputForce(std::fstream &fout);
+-        virtual void outputStress(std::fstream &fout);
+-        virtual void outputStrain(std::fstream &fout);
+-};
+-
+-
+-class PlaneElement: public BaseElement
+-{
+-    // TODO:
+-    private:
+-
+-    protected:
+-        virtual void setParticleDof()=0;
+-        virtual void setParticleMass()=0;
+-        virtual void calcOrientVector()=0;
+-        virtual void calcElementForce()=0;
+-
+-    public:
+-        PlaneElement(int id, std::vector<Particle*> ps, BaseMaterial* mat,
+-            BaseSection* sect);
+-        ~PlaneElement() override = default;
+-        virtual double calcCriticalTimeStep()=0;
+-        virtual void setParticleForce()=0;
+-        virtual void outputForce(std::fstream &fout)=0;
+-        virtual void outputStress(std::fstream &fout)=0;
+-        virtual void outputStrain(std::fstream &fout)=0;
+-};
+-
+-
+-class SolidElement: public BaseElement
+-{
+-    // TODO:
+-    private:
+-
+-    protected:
+-        virtual void setParticleDof()=0;
+-        virtual void setParticleMass()=0;
+-        virtual void calcOrientVector()=0;
+-        virtual void calcElementForce()=0;
+-
+-    public:
+-        SolidElement(int id, std::vector<Particle*> ps, const BaseMaterial* mat,
+-            const BaseSection* sect);
+-        ~SolidElement() override = default;
+-        virtual double calcCriticalTimeStep()=0;
+-        virtual void setParticleForce()=0;
+-        virtual void outputForce(std::fstream &fout)=0;
+-        virtual void outputStress(std::fstream &fout)=0;
+-        virtual void outputStrain(std::fstream &fout)=0;
+-};
+-
+-
+-class Link2D:public StructElement
+-{
+-    protected:
+-        const StdArray6d* posi_;
+-        const StdArray6d* posj_;
+-
+-        virtual void setParticleDof();
+-        virtual void setParticleMass();
+-        virtual void calcOrientVector();
+-        virtual void calcElementForce();
+-
+-    public:
+-        Link2D(int id, Particle& pi, Particle& pj, const BaseMaterial& mat,
+-               const BaseSection& sect);
+-        ~Link2D() override = default;
+-        virtual void outputForce(std::fstream &fout);
+-};
+-
+-
+-class Link2DLD:public Link2D
+-{
+-    private:
+-        /* parameters for plasitc material
+-        * ds - delta strain;
+-        * stress - current stress,
+-        * strain - current strain,
+-        * ps - current plastic strain
+-        * alpha - back stress,
+-        * q - hardening funciton,
+-        */
+-        UniaxialMaterialState material_state_;
+-
+-    protected:
+-        virtual void calcOrientVector();
+-        virtual void calcElementForce();
+-
+-    public:
+-        Link2DLD(int id, Particle& pi, Particle& pj, const BaseMaterial& mat,
+-                const BaseSection& sect);
+-        ~Link2DLD() override = default;
+-};
+-
+-
+-class Link3D: public StructElement
+-{
+-    protected:
+-        const StdArray6d* posi_;
+-        const StdArray6d* posj_;
+-
+-        virtual void setParticleDof();
+-        virtual void setParticleMass();
+-        virtual void calcOrientVector();
+-        virtual void calcElementForce();
+-
+-    public:
+-        Link3D(int id, Particle& pi, Particle& pj, const BaseMaterial& mat,
+-            const BaseSection& sect);
+-        ~Link3D() override = default;
+-        virtual void outputForce(std::fstream &fout);
+-};
+-
+-
+-class Link3DLD:public Link3D
+-{
+-    private:
+-        /* parameters for plasitc material
+-        * ds - delta strain;
+-        * stress - current stress,
+-        * strain - current strain,
+-        * ps - current plastic strain
+-        * alpha - back stress,
+-        * q - hardening funciton,
+-        */
+-        UniaxialMaterialState material_state_;
+-
+-    protected:
+-        virtual void calcOrientVector();
+-        virtual void calcElementForce();
+-
+-    public:
+-        Link3DLD(int id, Particle& pi, Particle& pj, const BaseMaterial& mat,
+-               const BaseSection& sect);
+-        ~Link3DLD() override = default;
+-};
+-
+-
+-class Beam2D:public StructElement
+-{
+-    /* Elastic 2D Beam element, which can count on geometric nonlinearity
+-    * Only Elastic materials are supported, if an plasticity material is given
+-    * only the elastic state will be used. Obviously this element do not
+-    * support the failure of element.
+-    *
+-    * Formulation (VFIFE co-rotational, x-y plane, rotation about z):
+-    * each step the rigid-body motion between the last recorded configuration
+-    * and the current one is removed; the remaining deformation increments
+-    * [d(elongation), d(phi_i), d(phi_j)] drive the incremental internal
+-    * forces through the local stiffness [EA/L; 4EI/L 2EI/L; 2EI/L 4EI/L].
+-    * Accumulated internal forces force_ = [N, Mi, Mj] are rotated to the
+-    * current axis triad (exa_, eya_) and applied to the particles as
+-    * restoring forces. Shear V = (Mi + Mj) / lt follows from moment
+-    * equilibrium in the current configuration.
+-    * Sign conventions: N > 0 tension; Mi/Mj counter-clockwise positive
+-    * internal end moments; V positive along +eya at end i.
+-    */
+-    protected:
+-        const StdArray6d* curr_posi_;
+-        const StdArray6d* curr_posj_;
+-        const StdArray6d* prev_posi_;
+-        const StdArray6d* prev_posj_;
+-
+-        // configuration at the previous internal-force update; kept by the
+-        // element itself so the fictitious previous position generated by
+-        // Particle::solveFirstStep never enters the deformation increments
+-        StdArray6d last_posi_;
+-        StdArray6d last_posj_;
+-
+-        Eigen::Matrix3d stiffness_;
+-        Eigen::Vector3d force_;
+-
+-        ElementForce emfi_, emfj_;
+-        Eigen::Vector3d exa_, eya_, eza_;
+-        double elem_rotation_angle_;
+-
+-        inline void initiateStiffnessMatrix();
+-        virtual void setParticleDof();
+-        virtual void setParticleMass();
+-        virtual void calcOrientVector();
+-        virtual void calcElementForce();
+-
+-    public:
+-        Beam2D(int id, Particle& pi, Particle& pj, const BaseMaterial& mat,
+-               const BaseSection& sect);
+-        ~Beam2D() override = default;
+-        [[nodiscard]] const ElementForce& end_force_i() const noexcept;
+-        [[nodiscard]] const ElementForce& end_force_j() const noexcept;
+-        double rotation_angle() const;
+-        virtual double calcCriticalTimeStep();
+-        virtual void outputForce(std::fstream &fout);
+-        virtual void outputStress(std::fstream &fout);
+-        virtual void outputStrain(std::fstream &fout);
+-};
+-
+-class Beam3D:public StructElement
+-{
+-    /* Elastic 3D Beam element, which can count on geometric nonlinearity
+-    * Only Elastic materials are supported, if an plasticity material is given
+-    * only the elastic state will be used. Obviously this element do not
+-    * support the failure of element.
+-    *
+-    * Formulation (VFIFE co-rotational, generalised from Beam2D): the element
+-    * carries an orthonormal section triad (exa_, eya_, eza_) as state, since
+-    * unlike Beam2D there is no fixed global axis it can be rebuilt from each
+-    * step. Each step the rigid chord rotation and the rigid twist between
+-    * the last recorded configuration and the current one are removed; the
+-    * remaining deformational rotation increments drive two independent
+-    * bending planes that reuse the validated Beam2D [4,2;2,4] recipe:
+-    *   plane 1: (ex, ey), bending about ez, stiffness EIzz -> mz_i_/mz_j_
+-    *   plane 2: (ex, ez), bending about -ey, stiffness EIyy -> mb_i_/mb_j_
+-    * plus an axial force n_force_ (EA/L) and a torsion t_moment_ (GJ/L)
+-    * about ex. Accumulated forces are rotated into the current triad and
+-    * applied to the particles as restoring forces, mirroring Beam2D.
+-    * Sign conventions: N > 0 tension; T > 0 about +ex; Mz/Mb end moments
+-    * follow the same convention as Beam2D's Mi/Mj in their own plane.
+-    */
+-    protected:
+-        StdArray3d reference_node_;
+-        const StdArray6d* curr_posi_;
+-        const StdArray6d* curr_posj_;
+-        const StdArray6d* prev_posi_;
+-        const StdArray6d* prev_posj_;
+-
+-        // configuration (position + rotation, indices 0-2 / 3-5) at the
+-        // previous internal-force update; same role as Beam2D's last_posi_
+-        StdArray6d last_posi_;
+-        StdArray6d last_posj_;
+-
+-        // current orthonormal section triad, carried as state (see class
+-        // comment above)
+-        Eigen::Vector3d exa_, eya_, eza_;
+-
+-        // This element's contribution to each end particle's rotational
+-        // inertia matrix.  The legacy 3D-frame oracle stores principal
+-        // inertias in the element basis and reprojects them after the basis
+-        // rotates; keeping the last contribution lets us update shared-node
+-        // particle inertia by delta without clearing other elements.
+-        Eigen::Matrix3d rotational_mass_contribution_;
+-
+-        // accumulated internal forces: axial N, torsion T about ex, and end
+-        // moments of the two independent bending planes
+-        double n_force_, t_moment_;
+-        double mz_i_, mz_j_;
+-        double mb_i_, mb_j_;
+-
+-        // local incremental stiffness terms.  They are refreshed with the
+-        // current/deformed length before each force update, matching frm3D.
+-        double ka_;                   // E*A/Lcurrent
+-        double kt_;                   // G*J/Lcurrent
+-        Eigen::Matrix2d kb1_, kb2_;    // (E*I/Lcurrent)*[[4,2],[2,4]]
+-
+-        ElementForce emfi_, emfj_;
+-
+-        inline void initiateBeam3D();
+-
+-        virtual void setParticleDof();
+-        virtual void setParticleMass();
+-        virtual void calcOrientVector();
+-        virtual void calcElementForce();
+-
+-    public:
+-        // create spatial Beam with default reference node (0, 0, 1)
+-        Beam3D(int id, Particle& pi, Particle& pj, const BaseMaterial& mat,
+-               const BaseSection& sect);
+-        // create spatial Beam with giving reference node
+-        Beam3D(int id, Particle& pi, Particle& pj, const BaseMaterial& mat,
+-               const BaseSection& sect, const StdArray3d ref_node);
+-        ~Beam3D() override = default;
+-        [[nodiscard]] const ElementForce& end_force_i() const noexcept;
+-        [[nodiscard]] const ElementForce& end_force_j() const noexcept;
+-        virtual double calcCriticalTimeStep();
+-        virtual void outputForce(std::fstream &fout);
+-        virtual void outputStress(std::fstream &fout);
+-        virtual void outputStrain(std::fstream &fout);
+-};
+-
+-
+-
+-#endif
+\ No newline at end of file
+diff --git a/headers/material.h b/headers/material.h
+deleted file mode 100644
+index 0cd58c6..0000000
+--- a/headers/material.h
++++ /dev/null
+@@ -1,185 +0,0 @@
+-/* ************************************************************************* **
+-**    OpenVFIFE - Open System for Vector Form Instrinsic                     **
+-**                Finite Element Method (VFIFE)                              **
+-**                GinkGo(Tan Biao)                                           **
+-**                                                                           **
+-**                                                                           **
+-** (C) Copyright 2021, The GinkGo(Tan Biao). All Rights Reserved.            **
+-**                                                                           **
+-** Commercial use of this program without express permission of              **
+-** GinkGo(Tan Biao), is strictly prohibited.  See                            **
+-** file 'COPYRIGHT'  in main directory for information on usage and          **
+-** redistribution,  and for a DISCLAIMER OF ALL WARRANTIES.                  **
+-**                                                                           **
+-** Developed by:                                                             **
+-**      Tan Biao (ginkgoltd@outlook.com)                                     **
+-**                                                                           **
+-** ************************************************************************* */
+-
+-// $Date: 2020-05-11 $
+-// Written: Tan Biao
+-// Revised:
+-//
+-// Purpose: This file contains the class definition for materials, including
+-// base class BaseMaterial (abstract base class), UniaxialPlastic, NdPlastic,
+-// and several derived materials - LinearElastic and uniaxial plastic models.
+-// UniBilinearStatic, UniBilinear, UniPower.
+-
+-// The interface:
+-//
+-// Caution: for nonlinear material, there will be numercial error which can be
+-// reduce by increase the increment of strain.
+-
+-
+-/*****************************************************************************/
+-/*                              Material Libary                              */
+-/* based on "Elasticity and Plasticity", chen & A.F. Salip                   */
+-/*****************************************************************************/
+-#ifndef MATERIAL_H_
+-#define MATERIAL_H_
+-#include <iostream>
+-#include <string>
+-#include <cmath>
+-#include "Eigen/Dense"
+-
+-
+-struct UniaxialMaterialState
+-{
+-    double stress{};
+-    double strain{};
+-    double plastic_strain{};
+-    double back_stress{};
+-    double hardening{};
+-};
+-
+-
+-class BaseMaterial
+-{
+-    // when E, G and nu are all defined; the G = E / 2 / (1 + nu);
+-    protected:
+-        int id_;
+-        std::string type_;
+-        double E_;
+-        double G_;
+-        double nu_;
+-        double density_;
+-        double ce_;
+-        double damp_ratio_;
+-        double damp_coef_;
+-        double mu_;
+-        double yield_stress_;
+-        double limited_tensile_strain_;
+-
+-    public:
+-        BaseMaterial(int id);
+-        virtual ~BaseMaterial() = default;
+-
+-        int id() const;
+-        std::string type() const;
+-        double E() const;
+-        double G() const;
+-        double nu() const;
+-        double density() const;
+-        double ce() const;
+-        double damp_ratio() const;
+-        double damp_coef() const;
+-        double mu() const;
+-        double yield_stress() const;
+-        double limited_tensile_strain() const;
+-        virtual bool isFractured(double strain) const;
+-        virtual double update(double delta_strain,
+-                              UniaxialMaterialState &state) const = 0;
+-
+-        void setE(double val);
+-        void setG(double val);
+-        void setNu(double val);
+-        void setDensity(double val);
+-        void setDampRatio(double val);
+-        void setDampCoef(double val);
+-        void setMu(double val);
+-        void setLimitedTensileStrain(double tensile);
+-        virtual void info() const;
+-
+-        double calcCe() const;
+-};
+-
+-
+-class LinearElastic: public BaseMaterial
+-{
+-    public:
+-        LinearElastic(int id);
+-        ~LinearElastic() override = default;
+-        // will change stress and strain
+-        double update(double delta_strain,
+-                      UniaxialMaterialState &state) const override;
+-};
+-
+-
+-class UniaxialPlastic: public BaseMaterial
+-{
+-    // pure virtual class
+-    protected:
+-        double m_;  // hardening, 0 - kinematic, 1 - isotropic, 0~1 - mixed
+-
+-    public:
+-        UniaxialPlastic(int id);
+-        ~UniaxialPlastic() override = default;
+-        void setYieldStress(double val);
+-        virtual void info() const;
+-};
+-
+-
+-class UniIdeal: public UniaxialPlastic
+-{
+-    protected:
+-        double Et_;  // Tangent Modulus, Et_ == 0
+-
+-    public:
+-        UniIdeal(int id, double E, double yield_stress);
+-        ~UniIdeal() override = default;
+-        // virtual void info() const;
+-        double update(double delta_strain,
+-                      UniaxialMaterialState &state) const override;
+-};
+-
+-
+-class UniBilinear: public UniaxialPlastic
+-{
+-    protected:
+-        double Et_;  // Tagent Modulus
+-
+-    public:
+-        UniBilinear(int id, double E, double Et, double yield_stress, double m);
+-        ~UniBilinear() override = default;
+-        double Et() const;
+-        virtual void info() const;
+-        double update(double delta_strain,
+-                      UniaxialMaterialState &state) const override;
+-};
+-
+-
+-class UniPower: public UniaxialPlastic
+-{
+-    // TODO: can't work! The Eq is not right(need to record last yield strain)
+-    /* stress = E * strain (not yield), stress = k * epsilon ** n (yield)*/
+-    /*
+-    * Equation: $\sigma = E \epsilon for \sigma <= {\sigma}_0$
+-    *           $\sigma = k {\epsilon}^n for \sigma > {\sigma}_0$
+-    *           ${\sigma}_0 = k({\sigma}_{0} / E) ^ n$
+-    */
+-    private:
+-        double k_;
+-        double n_;
+-
+-    protected:
+-
+-    public:
+-        UniPower(int id, double E, double n, double yield_stress, double m);
+-        ~UniPower() override = default;
+-        virtual void info() const;
+-        double update(double delta_strain,
+-                      UniaxialMaterialState &state) const override;
+-};
+-
+-
+-#endif
+\ No newline at end of file
+diff --git a/headers/particle.h b/include/openvfife/core/particle.hpp
+similarity index 75%
+rename from headers/particle.h
+rename to include/openvfife/core/particle.hpp
+index 4efb20c..a3858ce 100644
+--- a/headers/particle.h
++++ b/include/openvfife/core/particle.hpp
+@@ -1,42 +1,13 @@
+-/* ************************************************************************* **
+-**    OpenVFIFE - Open System for Vector Form Instrinsic                     **
+-**                Finite Element Method (VFIFE)                              **
+-**                GinkGo(Tan Biao)                                           **
+-**                                                                           **
+-**                                                                           **
+-** (C) Copyright 2021, The GinkGo(Tan Biao). All Rights Reserved.            **
+-**                                                                           **
+-** Commercial use of this program without express permission of              **
+-** GinkGo(Tan Biao), is strictly prohibited.  See                            **
+-** file 'COPYRIGHT'  in main directory for information on usage and          **
+-** redistribution,  and for a DISCLAIMER OF ALL WARRANTIES.                  **
+-**                                                                           **
+-** Developed by:                                                             **
+-**      Tan Biao (ginkgoltd@outlook.com)                                     **
+-**                                                                           **
+-** ************************************************************************* */
++// openVFIFE public API: particle and DOF state
++#pragma once
+ 
+-// $Date: 2020-05-11 $
+-// Written: Tan Biao
+-// Revised:
+-//
+-// Purpose: This file contains the class definition for Particle
+-
+-// The interface:
+-//
+-
+-#ifndef PARTICLE_H_
+-#define PARTICLE_H_
+ #include <cstdint>
+-#include <iostream>
+-#include <array>
+ #include <fstream>
++
+ #include "Eigen/Dense"
++#include <openvfife/core/types.hpp>
+ 
+-
+-typedef std::array<double, 6> StdArray6d;
+-typedef std::array<bool, 6> StdArray6b;
+-
++namespace openvfife {
+ enum class Dof : std::uint8_t
+ {
+     Ux = 0,
+@@ -184,4 +155,4 @@ class Particle
+         void outputAccelarate(std::fstream &fout) const;
+ };
+ 
+-#endif
+\ No newline at end of file
++} // namespace openvfife
+diff --git a/include/openvfife/core/types.hpp b/include/openvfife/core/types.hpp
+new file mode 100644
+index 0000000..132de76
+--- /dev/null
++++ b/include/openvfife/core/types.hpp
+@@ -0,0 +1,10 @@
++// openVFIFE fixed-size public value aliases.
++#pragma once
++
++#include <array>
++
++namespace openvfife {
++using StdArray3d = std::array<double, 3>;
++using StdArray6d = std::array<double, 6>;
++using StdArray6b = std::array<bool, 6>;
++} // namespace openvfife
+diff --git a/include/openvfife/element/base.hpp b/include/openvfife/element/base.hpp
+new file mode 100644
+index 0000000..04c2312
+--- /dev/null
++++ b/include/openvfife/element/base.hpp
+@@ -0,0 +1,128 @@
++// openVFIFE public API: common element contracts
++#pragma once
++
++#include <fstream>
++#include <map>
++#include <string>
++
++#include "Eigen/Dense"
++#include <openvfife/core/particle.hpp>
++#include <openvfife/material/uniaxial.hpp>
++#include <openvfife/section/section.hpp>
++
++namespace openvfife {
++struct Strain
++{
++    /* organize strain at one point, for outputing */
++    double sx{}, sy{}, sz{};
++    double sxy{}, syz{}, sxz{};
++};
++
++struct Stress
++{
++    /* organize stress at one point, for outputing */
++    double sx{}, sy{}, sz{};
++    double sxy{}, syz{}, sxz{};
++};
++
++struct ElementForce
++{
++    /* organize force of rod element, for outputing */
++    double fx{};
++    double sfy{}, sfz{};
++    double mx{}, my{}, mz{};
++};
++
++/* Sorry, I have no time to write a detailed comments for every element class.
++* In fact, I am not very satisfied with the current framework. I will redesign
++* openVFIFE after graduating. When the time comes, a detailed documentation
++* will be released with new version of openVFIFE. Sorry again, there will be
++* no comments of element classes.
++*
++*/
++
++class BaseElement
++{
++    protected:
++        int id_{};
++        std::string type_{"BaseElement"};
++        int num_of_particles_{1};
++        std::map<int, Particle*> particles_;
++        const BaseMaterial* material_{nullptr};
++        const BaseSection* section_{nullptr};
++        double mass_{};
++        Strain strain_{};
++        Stress stress_{};
++        Eigen::Vector3d ex_{Eigen::Vector3d::Zero()};
++        Eigen::Vector3d ey_{Eigen::Vector3d::Zero()};
++        Eigen::Vector3d ez_{Eigen::Vector3d::Zero()};
++        bool is_failed_{false};
++
++    protected:
++        void addParticle(Particle* p);
++        virtual void setParticleDof()=0;
++        virtual void setParticleMass()=0;
++        virtual void calcOrientVector()=0;
++        virtual void calcElementForce()=0;
++
++    public:
++        explicit BaseElement(int id);
++        virtual ~BaseElement() = default;
++
++        virtual void info() const;
++        int id() const;
++        std::string type() const;
++        int num_of_particles() const;
++        [[nodiscard]] const std::map<int, Particle*>& particles() const noexcept;
++        [[nodiscard]] const BaseMaterial& material() const noexcept;
++        [[nodiscard]] const BaseSection& section() const noexcept;
++        double mass() const;
++        [[nodiscard]] const Eigen::Vector3d& ex() const noexcept;
++        [[nodiscard]] const Eigen::Vector3d& ey() const noexcept;
++        [[nodiscard]] const Eigen::Vector3d& ez() const noexcept;
++        [[nodiscard]] const Strain& strain() const noexcept;
++        [[nodiscard]] const Stress& stress() const noexcept;
++        bool is_failed() const;
++        virtual double calcCriticalTimeStep()=0;
++        virtual void setParticleForce()=0;
++        virtual void outputForce(std::fstream &fout)=0;
++        virtual void outputStress(std::fstream &fout)=0;
++        virtual void outputStrain(std::fstream &fout)=0;
++};
++
++class StructElement: public BaseElement
++{
++    private:
++        inline void calcLength();
++        inline void calcMass();
++
++    protected:
++        Particle* pi_{nullptr};
++        Particle* pj_{nullptr};
++        StdArray6d fi_{};
++        StdArray6d fj_{};
++        double length_{};
++        double lt_{}, la_{};
++        ElementForce element_force_{};
++
++        virtual void setParticleDof()=0;
++        virtual void setParticleMass()=0;
++        virtual void calcOrientVector()=0;
++        virtual void calcElementForce()=0;
++
++    public:
++        StructElement(int id, Particle& pi, Particle& pj,
++            const BaseMaterial& mat, const BaseSection& sect);
++        ~StructElement() override = default;
++        double length() const;
++        double current_length() const;
++        [[nodiscard]] const ElementForce& element_force() const noexcept;
++        virtual double calcCriticalTimeStep();
++        virtual void setParticleForce();
++        // virtual void kill()=0;
++        virtual void outputForce(std::fstream &fout);
++        virtual void outputStress(std::fstream &fout);
++        virtual void outputStrain(std::fstream &fout);
++};
++
++} // namespace openvfife
+diff --git a/include/openvfife/element/experimental.hpp b/include/openvfife/element/experimental.hpp
+new file mode 100644
+index 0000000..409668f
+--- /dev/null
++++ b/include/openvfife/element/experimental.hpp
+@@ -0,0 +1,118 @@
++// openVFIFE public API: experimental and unimplemented element declarations
++#pragma once
++
++#include <vector>
++
++#include <openvfife/element/frame.hpp>
++#include <openvfife/material/uniaxial.hpp>
++
++namespace openvfife {
++class PlaneElement: public BaseElement
++{
++    // TODO:
++    private:
++
++    protected:
++        virtual void setParticleDof()=0;
++        virtual void setParticleMass()=0;
++        virtual void calcOrientVector()=0;
++        virtual void calcElementForce()=0;
++
++    public:
++        PlaneElement(int id, std::vector<Particle*> ps, BaseMaterial* mat,
++            BaseSection* sect);
++        ~PlaneElement() override = default;
++        virtual double calcCriticalTimeStep()=0;
++        virtual void setParticleForce()=0;
++        virtual void outputForce(std::fstream &fout)=0;
++        virtual void outputStress(std::fstream &fout)=0;
++        virtual void outputStrain(std::fstream &fout)=0;
++};
++
++class SolidElement: public BaseElement
++{
++    // TODO:
++    private:
++
++    protected:
++        virtual void setParticleDof()=0;
++        virtual void setParticleMass()=0;
++        virtual void calcOrientVector()=0;
++        virtual void calcElementForce()=0;
++
++    public:
++        SolidElement(int id, std::vector<Particle*> ps, const BaseMaterial* mat,
++            const BaseSection* sect);
++        ~SolidElement() override = default;
++        virtual double calcCriticalTimeStep()=0;
++        virtual void setParticleForce()=0;
++        virtual void outputForce(std::fstream &fout)=0;
++        virtual void outputStress(std::fstream &fout)=0;
++        virtual void outputStrain(std::fstream &fout)=0;
++};
++
++class Link2DLD:public Link2D
++{
++    private:
++        /* parameters for plasitc material
++        * ds - delta strain;
++        * stress - current stress,
++        * strain - current strain,
++        * ps - current plastic strain
++        * alpha - back stress,
++        * q - hardening funciton,
++        */
++        UniaxialMaterialState material_state_;
++
++    protected:
++        virtual void calcOrientVector();
++        virtual void calcElementForce();
++
++    public:
++        Link2DLD(int id, Particle& pi, Particle& pj, const BaseMaterial& mat,
++                const BaseSection& sect);
++        ~Link2DLD() override = default;
++};
++
++class Link3D: public StructElement
++{
++    protected:
++        const StdArray6d* posi_;
++        const StdArray6d* posj_;
++
++        virtual void setParticleDof();
++        virtual void setParticleMass();
++        virtual void calcOrientVector();
++        virtual void calcElementForce();
++
++    public:
++        Link3D(int id, Particle& pi, Particle& pj, const BaseMaterial& mat,
++            const BaseSection& sect);
++        ~Link3D() override = default;
++        virtual void outputForce(std::fstream &fout);
++};
++
++class Link3DLD:public Link3D
++{
++    private:
++        /* parameters for plasitc material
++        * ds - delta strain;
++        * stress - current stress,
++        * strain - current strain,
++        * ps - current plastic strain
++        * alpha - back stress,
++        * q - hardening funciton,
++        */
++        UniaxialMaterialState material_state_;
++
++    protected:
++        virtual void calcOrientVector();
++        virtual void calcElementForce();
++
++    public:
++        Link3DLD(int id, Particle& pi, Particle& pj, const BaseMaterial& mat,
++               const BaseSection& sect);
++        ~Link3DLD() override = default;
++};
++
++} // namespace openvfife
+diff --git a/include/openvfife/element/frame.hpp b/include/openvfife/element/frame.hpp
+new file mode 100644
+index 0000000..ad7c4bd
+--- /dev/null
++++ b/include/openvfife/element/frame.hpp
+@@ -0,0 +1,164 @@
++// openVFIFE public API: supported frame and link elements
++#pragma once
++
++#include <openvfife/element/base.hpp>
++
++namespace openvfife {
++class Link2D:public StructElement
++{
++    protected:
++        const StdArray6d* posi_;
++        const StdArray6d* posj_;
++
++        virtual void setParticleDof();
++        virtual void setParticleMass();
++        virtual void calcOrientVector();
++        virtual void calcElementForce();
++
++    public:
++        Link2D(int id, Particle& pi, Particle& pj, const BaseMaterial& mat,
++               const BaseSection& sect);
++        ~Link2D() override = default;
++        virtual void outputForce(std::fstream &fout);
++};
++
++class Beam2D:public StructElement
++{
++    /* Elastic 2D Beam element, which can count on geometric nonlinearity
++    * Only Elastic materials are supported, if an plasticity material is given
++    * only the elastic state will be used. Obviously this element do not
++    * support the failure of element.
++    *
++    * Formulation (VFIFE co-rotational, x-y plane, rotation about z):
++    * each step the rigid-body motion between the last recorded configuration
++    * and the current one is removed; the remaining deformation increments
++    * [d(elongation), d(phi_i), d(phi_j)] drive the incremental internal
++    * forces through the local stiffness [EA/L; 4EI/L 2EI/L; 2EI/L 4EI/L].
++    * Accumulated internal forces force_ = [N, Mi, Mj] are rotated to the
++    * current axis triad (exa_, eya_) and applied to the particles as
++    * restoring forces. Shear V = (Mi + Mj) / lt follows from moment
++    * equilibrium in the current configuration.
++    * Sign conventions: N > 0 tension; Mi/Mj counter-clockwise positive
++    * internal end moments; V positive along +eya at end i.
++    */
++    protected:
++        const StdArray6d* curr_posi_;
++        const StdArray6d* curr_posj_;
++        const StdArray6d* prev_posi_;
++        const StdArray6d* prev_posj_;
++
++        // configuration at the previous internal-force update; kept by the
++        // element itself so the fictitious previous position generated by
++        // Particle::solveFirstStep never enters the deformation increments
++        StdArray6d last_posi_;
++        StdArray6d last_posj_;
++
++        Eigen::Matrix3d stiffness_;
++        Eigen::Vector3d force_;
++
++        ElementForce emfi_, emfj_;
++        Eigen::Vector3d exa_, eya_, eza_;
++        double elem_rotation_angle_;
++
++        inline void initiateStiffnessMatrix();
++        virtual void setParticleDof();
++        virtual void setParticleMass();
++        virtual void calcOrientVector();
++        virtual void calcElementForce();
++
++    public:
++        Beam2D(int id, Particle& pi, Particle& pj, const BaseMaterial& mat,
++               const BaseSection& sect);
++        ~Beam2D() override = default;
++        [[nodiscard]] const ElementForce& end_force_i() const noexcept;
++        [[nodiscard]] const ElementForce& end_force_j() const noexcept;
++        double rotation_angle() const;
++        virtual double calcCriticalTimeStep();
++        virtual void outputForce(std::fstream &fout);
++        virtual void outputStress(std::fstream &fout);
++        virtual void outputStrain(std::fstream &fout);
++};
++
++class Beam3D:public StructElement
++{
++    /* Elastic 3D Beam element, which can count on geometric nonlinearity
++    * Only Elastic materials are supported, if an plasticity material is given
++    * only the elastic state will be used. Obviously this element do not
++    * support the failure of element.
++    *
++    * Formulation (VFIFE co-rotational, generalised from Beam2D): the element
++    * carries an orthonormal section triad (exa_, eya_, eza_) as state, since
++    * unlike Beam2D there is no fixed global axis it can be rebuilt from each
++    * step. Each step the rigid chord rotation and the rigid twist between
++    * the last recorded configuration and the current one are removed; the
++    * remaining deformational rotation increments drive two independent
++    * bending planes that reuse the validated Beam2D [4,2;2,4] recipe:
++    *   plane 1: (ex, ey), bending about ez, stiffness EIzz -> mz_i_/mz_j_
++    *   plane 2: (ex, ez), bending about -ey, stiffness EIyy -> mb_i_/mb_j_
++    * plus an axial force n_force_ (EA/L) and a torsion t_moment_ (GJ/L)
++    * about ex. Accumulated forces are rotated into the current triad and
++    * applied to the particles as restoring forces, mirroring Beam2D.
++    * Sign conventions: N > 0 tension; T > 0 about +ex; Mz/Mb end moments
++    * follow the same convention as Beam2D's Mi/Mj in their own plane.
++    */
++    protected:
++        StdArray3d reference_node_;
++        const StdArray6d* curr_posi_;
++        const StdArray6d* curr_posj_;
++        const StdArray6d* prev_posi_;
++        const StdArray6d* prev_posj_;
++
++        // configuration (position + rotation, indices 0-2 / 3-5) at the
++        // previous internal-force update; same role as Beam2D's last_posi_
++        StdArray6d last_posi_;
++        StdArray6d last_posj_;
++
++        // current orthonormal section triad, carried as state (see class
++        // comment above)
++        Eigen::Vector3d exa_, eya_, eza_;
++
++        // This element's contribution to each end particle's rotational
++        // inertia matrix.  The legacy 3D-frame oracle stores principal
++        // inertias in the element basis and reprojects them after the basis
++        // rotates; keeping the last contribution lets us update shared-node
++        // particle inertia by delta without clearing other elements.
++        Eigen::Matrix3d rotational_mass_contribution_;
++
++        // accumulated internal forces: axial N, torsion T about ex, and end
++        // moments of the two independent bending planes
++        double n_force_, t_moment_;
++        double mz_i_, mz_j_;
++        double mb_i_, mb_j_;
++
++        // local incremental stiffness terms.  They are refreshed with the
++        // current/deformed length before each force update, matching frm3D.
++        double ka_;                   // E*A/Lcurrent
++        double kt_;                   // G*J/Lcurrent
++        Eigen::Matrix2d kb1_, kb2_;    // (E*I/Lcurrent)*[[4,2],[2,4]]
++
++        ElementForce emfi_, emfj_;
++
++        inline void initiateBeam3D();
++
++        virtual void setParticleDof();
++        virtual void setParticleMass();
++        virtual void calcOrientVector();
++        virtual void calcElementForce();
++
++    public:
++        // create spatial Beam with default reference node (0, 0, 1)
++        Beam3D(int id, Particle& pi, Particle& pj, const BaseMaterial& mat,
++               const BaseSection& sect);
++        // create spatial Beam with giving reference node
++        Beam3D(int id, Particle& pi, Particle& pj, const BaseMaterial& mat,
++               const BaseSection& sect, const StdArray3d ref_node);
++        ~Beam3D() override = default;
++        [[nodiscard]] const ElementForce& end_force_i() const noexcept;
++        [[nodiscard]] const ElementForce& end_force_j() const noexcept;
++        virtual double calcCriticalTimeStep();
++        virtual void outputForce(std::fstream &fout);
++        virtual void outputStress(std::fstream &fout);
++        virtual void outputStrain(std::fstream &fout);
++};
++
++} // namespace openvfife
+diff --git a/include/openvfife/material/experimental.hpp b/include/openvfife/material/experimental.hpp
+new file mode 100644
+index 0000000..e4618d2
+--- /dev/null
++++ b/include/openvfife/material/experimental.hpp
+@@ -0,0 +1,43 @@
++// openVFIFE public API: experimental uniaxial materials
++#pragma once
++
++#include <openvfife/material/uniaxial.hpp>
++
++namespace openvfife {
++class UniIdeal: public UniaxialPlastic
++{
++    protected:
++        double Et_;  // Tangent Modulus, Et_ == 0
++
++    public:
++        UniIdeal(int id, double E, double yield_stress);
++        ~UniIdeal() override = default;
++        // virtual void info() const;
++        double update(double delta_strain,
++                      UniaxialMaterialState &state) const override;
++};
++
++class UniPower: public UniaxialPlastic
++{
++    // TODO: can't work! The Eq is not right(need to record last yield strain)
++    /* stress = E * strain (not yield), stress = k * epsilon ** n (yield)*/
++    /*
++    * Equation: $\sigma = E \epsilon for \sigma <= {\sigma}_0$
++    *           $\sigma = k {\epsilon}^n for \sigma > {\sigma}_0$
++    *           ${\sigma}_0 = k({\sigma}_{0} / E) ^ n$
++    */
++    private:
++        double k_;
++        double n_;
++
++    protected:
++
++    public:
++        UniPower(int id, double E, double n, double yield_stress, double m);
++        ~UniPower() override = default;
++        virtual void info() const;
++        double update(double delta_strain,
++                      UniaxialMaterialState &state) const override;
++};
++
++} // namespace openvfife
+diff --git a/include/openvfife/material/uniaxial.hpp b/include/openvfife/material/uniaxial.hpp
+new file mode 100644
+index 0000000..4e2fed2
+--- /dev/null
++++ b/include/openvfife/material/uniaxial.hpp
+@@ -0,0 +1,104 @@
++// openVFIFE public API: supported uniaxial materials
++#pragma once
++
++#include <string>
++
++
++namespace openvfife {
++struct UniaxialMaterialState
++{
++    double stress{};
++    double strain{};
++    double plastic_strain{};
++    double back_stress{};
++    double hardening{};
++};
++
++class BaseMaterial
++{
++    // when E, G and nu are all defined; the G = E / 2 / (1 + nu);
++    protected:
++        int id_;
++        std::string type_;
++        double E_;
++        double G_;
++        double nu_;
++        double density_;
++        double ce_;
++        double damp_ratio_;
++        double damp_coef_;
++        double mu_;
++        double yield_stress_;
++        double limited_tensile_strain_;
++
++    public:
++        BaseMaterial(int id);
++        virtual ~BaseMaterial() = default;
++
++        int id() const;
++        std::string type() const;
++        double E() const;
++        double G() const;
++        double nu() const;
++        double density() const;
++        double ce() const;
++        double damp_ratio() const;
++        double damp_coef() const;
++        double mu() const;
++        double yield_stress() const;
++        double limited_tensile_strain() const;
++        virtual bool isFractured(double strain) const;
++        virtual double update(double delta_strain,
++                              UniaxialMaterialState &state) const = 0;
++
++        void setE(double val);
++        void setG(double val);
++        void setNu(double val);
++        void setDensity(double val);
++        void setDampRatio(double val);
++        void setDampCoef(double val);
++        void setMu(double val);
++        void setLimitedTensileStrain(double tensile);
++        virtual void info() const;
++
++        double calcCe() const;
++};
++
++class LinearElastic: public BaseMaterial
++{
++    public:
++        LinearElastic(int id);
++        ~LinearElastic() override = default;
++        // will change stress and strain
++        double update(double delta_strain,
++                      UniaxialMaterialState &state) const override;
++};
++
++class UniaxialPlastic: public BaseMaterial
++{
++    // pure virtual class
++    protected:
++        double m_;  // hardening, 0 - kinematic, 1 - isotropic, 0~1 - mixed
++
++    public:
++        UniaxialPlastic(int id);
++        ~UniaxialPlastic() override = default;
++        void setYieldStress(double val);
++        virtual void info() const;
++};
++
++class UniBilinear: public UniaxialPlastic
++{
++    protected:
++        double Et_;  // Tagent Modulus
++
++    public:
++        UniBilinear(int id, double E, double Et, double yield_stress, double m);
++        ~UniBilinear() override = default;
++        double Et() const;
++        virtual void info() const;
++        double update(double delta_strain,
++                      UniaxialMaterialState &state) const override;
++};
++
++} // namespace openvfife
+diff --git a/headers/integrator.h b/include/openvfife/numerics/quadrature.hpp
+similarity index 60%
+rename from headers/integrator.h
+rename to include/openvfife/numerics/quadrature.hpp
+index f19e067..7832a45 100644
+--- a/headers/integrator.h
++++ b/include/openvfife/numerics/quadrature.hpp
+@@ -1,38 +1,10 @@
+-/* ************************************************************************* **
+-**    OpenVFIFE - Open System for Vector Form Instrinsic                     **
+-**                Finite Element Method (VFIFE)                              **
+-**                GinkGo(Tan Biao)                                           **
+-**                                                                           **
+-**                                                                           **
+-** (C) Copyright 2021, The GinkGo(Tan Biao). All Rights Reserved.            **
+-**                                                                           **
+-** Commercial use of this program without express permission of              **
+-** GinkGo(Tan Biao), is strictly prohibited.  See                            **
+-** file 'COPYRIGHT'  in main directory for information on usage and          **
+-** redistribution,  and for a DISCLAIMER OF ALL WARRANTIES.                  **
+-**                                                                           **
+-** Developed by:                                                             **
+-**      Tan Biao (ginkgoltd@outlook.com)                                     **
+-**                                                                           **
+-** ************************************************************************* */
++// openVFIFE public API: spatial quadrature
++#pragma once
+ 
+-// $Date: 2020-05-22 $
+-// Written: Tan Biao
+-// Revised:
+-//
+-// Purpose: This file contains the class definition for Particle
+-
+-// The interface:
+-//
+-
+-#ifndef INTEGRATOR_H_
+-#define INTEGRATOR_H_
+-#include <iostream>
+ #include <vector>
+-#include <cmath>
+-#include "Eigen/Dense"
+ 
+ 
++namespace openvfife {
+ class BaseIntegrator
+ {
+     /*
+@@ -105,4 +77,4 @@ class GaussLobatto:public BaseIntegrator
+         ~GaussLobatto() override = default;
+ };
+ 
+-#endif
+\ No newline at end of file
++} // namespace openvfife
+diff --git a/include/openvfife/openvfife.hpp b/include/openvfife/openvfife.hpp
+new file mode 100644
+index 0000000..1a842c9
+--- /dev/null
++++ b/include/openvfife/openvfife.hpp
+@@ -0,0 +1,11 @@
++// Supported openVFIFE C++ surface. Experimental APIs require explicit includes.
++#pragma once
++
++#include <openvfife/core/types.hpp>
++#include <openvfife/core/particle.hpp>
++#include <openvfife/numerics/quadrature.hpp>
++#include <openvfife/material/uniaxial.hpp>
++#include <openvfife/section/section.hpp>
++#include <openvfife/element/base.hpp>
++#include <openvfife/element/frame.hpp>
++#include <openvfife/solver/struct_system.hpp>
+diff --git a/include/openvfife/section/experimental.hpp b/include/openvfife/section/experimental.hpp
+new file mode 100644
+index 0000000..6a1513a
+--- /dev/null
++++ b/include/openvfife/section/experimental.hpp
+@@ -0,0 +1,100 @@
++// openVFIFE public API: experimental section definitions
++#pragma once
++
++#include <openvfife/section/section.hpp>
++
++namespace openvfife {
++class Ctube: public BaseSection
++{
++    /* circular tube section
++    *  ri - internal diameter
++    *  ro - outer diameter
++    *
++    *           ^ y
++    *           |
++    *        ...|...
++    *       . . | . .
++    *      . .  |  . .
++    * ----.-.---|---.-.---------> z
++    *      . .  |  . .
++    *       . ..|.. .
++    *        ...|...
++    *           |
++    */
++    private:
++        double ri_;
++        double ro_;
++
++    protected:
++        virtual void calcArea();
++        virtual void calcSy();
++        virtual void calcSz();
++        virtual void calcCGy();
++        virtual void calcCGz();
++        virtual void calcSHy();
++        virtual void calcSHz();
++        virtual void calcIyy();
++        virtual void calcIzz();
++        virtual void calcIyz();
++
++    public:
++        Ctube(int id, double ri, double ro);
++        ~Ctube() override = default;
++        double ri() const;
++        double ro() const;
++        virtual void info() const;
++};
++
++class AngleSteel: public BaseSection
++{
++    /* Section Parameters
++    * Sy, Sz - calculated in xOy coordinate system
++    * CGy, CGZ - presented in xOy coordiante system
++    * Iyy, Izz - calculated in xcOyc coordinate system (principle central axis)
++    *
++    *     y ^ t1
++    *       |____
++    *       |   |
++    *       |   |
++    *       |   |    ^ yc
++    *  w1   |   |    |
++    *       |A1 |    |
++    *       |   |    |
++    *       |   | ---|-----> zc
++    *       |   |    |shape center
++    *       |   |______________
++    *       |   |     A2      | t2
++    *   ____|___|_____________|________> z
++    *       |
++    *       |        w2
++    *
++    */
++    private:
++        double w1_;
++        double w2_;
++        double t1_;
++        double t2_;
++
++    protected:
++        virtual void calcArea();
++        virtual void calcSy();
++        virtual void calcSz();
++        virtual void calcCGy();
++        virtual void calcCGz();
++        virtual void calcSHy();
++        virtual void calcSHz();
++        virtual void calcIyy();
++        virtual void calcIzz();
++        virtual void calcIyz();
++
++    public:
++        AngleSteel(int id, double w1, double w2, double t1, double t2);
++        ~AngleSteel() override = default;
++        double w1() const;
++        double w2() const;
++        double t1() const;
++        double t2() const;
++        virtual void info() const;
++};
++
++} // namespace openvfife
+diff --git a/headers/gridsection.h b/include/openvfife/section/grid_section.hpp
+similarity index 81%
+rename from headers/gridsection.h
+rename to include/openvfife/section/grid_section.hpp
+index 2eb9cf9..6a5b087 100644
+--- a/headers/gridsection.h
++++ b/include/openvfife/section/grid_section.hpp
+@@ -1,41 +1,17 @@
+-/* ************************************************************************* **
+-**    OpenVFIFE - Open System for Vector Form Instrinsic                     **
+-**                Finite Element Method (VFIFE)                              **
+-**                GinkGo(Tan Biao)                                           **
+-**                                                                           **
+-**                                                                           **
+-** (C) Copyright 2021, The GinkGo(Tan Biao). All Rights Reserved.            **
+-**                                                                           **
+-** Commercial use of this program without express permission of              **
+-** GinkGo(Tan Biao), is strictly prohibited.  See                            **
+-** file 'COPYRIGHT'  in main directory for information on usage and          **
+-** redistribution,  and for a DISCLAIMER OF ALL WARRANTIES.                  **
+-**                                                                           **
+-** Developed by:                                                             **
+-**      Tan Biao (ginkgoltd@outlook.com)                                     **
+-**                                                                           **
+-** ************************************************************************* */
++// openVFIFE public API: experimental section-grid integration
++#pragma once
+ 
+-// $Date: 2021-06-07$
+-// Written: Tan Biao
+-// Revised:
+-//
+-// Purpose: This file contains the class definition for SectionGrid, including
+-// SectionCell, SectionResponse, RectangleGrid, AngleSteelGrid
+-
+-// The interface:
+-//
+-
+-#ifndef _GRIDSECTION_H_
+-#define _GRIDSECTION_H_
+ #include <memory>
+ #include <stdexcept>
++#include <string>
+ #include <vector>
+-#include "section.h"
+-#include "material.h"
+-#include "integrator.h"
+ 
++#include "Eigen/Dense"
++#include <openvfife/material/uniaxial.hpp>
++#include <openvfife/numerics/quadrature.hpp>
++#include <openvfife/section/section.hpp>
+ 
++namespace openvfife {
+ // define a struct to restore point coordinate
+ struct SectionPoint { double y, z; };
+ 
+@@ -280,5 +256,4 @@ class CreateGrid
+         }
+ };
+ 
+-
+-#endif
+\ No newline at end of file
++} // namespace openvfife
+diff --git a/headers/section.h b/include/openvfife/section/section.hpp
+similarity index 50%
+rename from headers/section.h
+rename to include/openvfife/section/section.hpp
+index 185b0bc..81308c6 100644
+--- a/headers/section.h
++++ b/include/openvfife/section/section.hpp
+@@ -1,35 +1,9 @@
+-/* ************************************************************************* **
+-**    OpenVFIFE - Open System for Vector Form Instrinsic                     **
+-**                Finite Element Method (VFIFE)                              **
+-**                GinkGo(Tan Biao)                                           **
+-**                                                                           **
+-**                                                                           **
+-** (C) Copyright 2021, The GinkGo(Tan Biao). All Rights Reserved.            **
+-**                                                                           **
+-** Commercial use of this program without express permission of              **
+-** GinkGo(Tan Biao), is strictly prohibited.  See                            **
+-** file 'COPYRIGHT'  in main directory for information on usage and          **
+-** redistribution,  and for a DISCLAIMER OF ALL WARRANTIES.                  **
+-**                                                                           **
+-** Developed by:                                                             **
+-**      Tan Biao (ginkgoltd@outlook.com)                                     **
+-**                                                                           **
+-** ************************************************************************* */
++// openVFIFE public API: supported section definitions
++#pragma once
+ 
+-// $Date: 2020-05-11 $
+-// Written: Tan Biao
+-// Revised:
+-//
+-// Purpose: This file contains the class definition for Sections
+-
+-// The interface:
+-//
+-
+-#ifndef SECTION_H_
+-#define SECTION_H_
+-#include <iostream>
+ #include <string>
+ 
++namespace openvfife {
+ class BaseSection
+ {
+     /* Abstract Base class for Section Module; all class inherited from
+@@ -79,7 +53,6 @@ class BaseSection
+         double J() const;
+ };
+ 
+-
+ struct CustomSectionParas
+ {
+     /* struct for store section characteristics, see CustomSection class */
+@@ -92,7 +65,6 @@ struct CustomSectionParas
+                  // falls back to the polar approximation J = Iyy + Izz
+ };
+ 
+-
+ class CustomSection: public BaseSection
+ {
+     /* class for user defined section, all the section characteristics should
+@@ -123,102 +95,6 @@ class CustomSection: public BaseSection
+         virtual void info() const;
+ };
+ 
+-
+-class Ctube: public BaseSection
+-{
+-    /* circular tube section
+-    *  ri - internal diameter
+-    *  ro - outer diameter
+-    *
+-    *           ^ y
+-    *           |
+-    *        ...|...
+-    *       . . | . .
+-    *      . .  |  . .
+-    * ----.-.---|---.-.---------> z
+-    *      . .  |  . .
+-    *       . ..|.. .
+-    *        ...|...
+-    *           |
+-    */
+-    private:
+-        double ri_;
+-        double ro_;
+-
+-    protected:
+-        virtual void calcArea();
+-        virtual void calcSy();
+-        virtual void calcSz();
+-        virtual void calcCGy();
+-        virtual void calcCGz();
+-        virtual void calcSHy();
+-        virtual void calcSHz();
+-        virtual void calcIyy();
+-        virtual void calcIzz();
+-        virtual void calcIyz();
+-
+-    public:
+-        Ctube(int id, double ri, double ro);
+-        ~Ctube() override = default;
+-        double ri() const;
+-        double ro() const;
+-        virtual void info() const;
+-};
+-
+-
+-class AngleSteel: public BaseSection
+-{
+-    /* Section Parameters
+-    * Sy, Sz - calculated in xOy coordinate system
+-    * CGy, CGZ - presented in xOy coordiante system
+-    * Iyy, Izz - calculated in xcOyc coordinate system (principle central axis)
+-    *
+-    *     y ^ t1
+-    *       |____
+-    *       |   |
+-    *       |   |
+-    *       |   |    ^ yc
+-    *  w1   |   |    |
+-    *       |A1 |    |
+-    *       |   |    |
+-    *       |   | ---|-----> zc
+-    *       |   |    |shape center
+-    *       |   |______________
+-    *       |   |     A2      | t2
+-    *   ____|___|_____________|________> z
+-    *       |
+-    *       |        w2
+-    *
+-    */
+-    private:
+-        double w1_;
+-        double w2_;
+-        double t1_;
+-        double t2_;
+-
+-    protected:
+-        virtual void calcArea();
+-        virtual void calcSy();
+-        virtual void calcSz();
+-        virtual void calcCGy();
+-        virtual void calcCGz();
+-        virtual void calcSHy();
+-        virtual void calcSHz();
+-        virtual void calcIyy();
+-        virtual void calcIzz();
+-        virtual void calcIyz();
+-
+-    public:
+-        AngleSteel(int id, double w1, double w2, double t1, double t2);
+-        ~AngleSteel() override = default;
+-        double w1() const;
+-        double w2() const;
+-        double t1() const;
+-        double t2() const;
+-        virtual void info() const;
+-};
+-
+-
+ class Rectangle: public BaseSection
+ {
+     /* Seciton Parameters
+@@ -262,5 +138,4 @@ class Rectangle: public BaseSection
+         virtual void info() const;
+ };
+ 
+-
+-#endif
+\ No newline at end of file
++} // namespace openvfife
+diff --git a/headers/structsystem.h b/include/openvfife/solver/struct_system.hpp
+similarity index 68%
+rename from headers/structsystem.h
+rename to include/openvfife/solver/struct_system.hpp
+index 727a978..d549930 100644
+--- a/headers/structsystem.h
++++ b/include/openvfife/solver/struct_system.hpp
+@@ -1,42 +1,17 @@
+-/* ************************************************************************* **
+-**    OpenVFIFE - Open System for Vector Form Instrinsic                     **
+-**                Finite Element Method (VFIFE)                              **
+-**                GinkGo(Tan Biao)                                           **
+-**                                                                           **
+-**                                                                           **
+-** (C) Copyright 2021, The GinkGo(Tan Biao). All Rights Reserved.            **
+-**                                                                           **
+-** Commercial use of this program without express permission of              **
+-** GinkGo(Tan Biao), is strictly prohibited.  See                            **
+-** file 'COPYRIGHT'  in main directory for information on usage and          **
+-** redistribution,  and for a DISCLAIMER OF ALL WARRANTIES.                  **
+-**                                                                           **
+-** Developed by:                                                             **
+-**      Tan Biao (ginkgoltd@outlook.com)                                     **
+-**                                                                           **
+-** ************************************************************************* */
++// openVFIFE public API: system ownership and solver orchestration
++#pragma once
+ 
+-// $Date: 2020-05-11 $
+-// Written: Tan Biao
+-// Revised:
+-//
+-// Purpose: This file contains the class definition for StructSystem
+-
+-// The interface:
+-//
+-
+-#ifndef STRUCTSYSTEM_H_
+-#define STRUCTSYSTEM_H_
+ #include <map>
+ #include <memory>
+ #include <string>
+ #include <vector>
+-#include "particle.h"
+-#include "material.h"
+-#include "section.h"
+-#include "element.h"
+ 
++#include <openvfife/core/particle.hpp>
++#include <openvfife/element/base.hpp>
++#include <openvfife/material/uniaxial.hpp>
++#include <openvfife/section/section.hpp>
+ 
++namespace openvfife {
+ class StructSystem
+ {
+     public:
+@@ -137,10 +112,4 @@ class StructSystem
+ 
+ };
+ 
+-
+-// other functions
+-bool isFileExists(const std::string &fname);
+-bool isDirExists(const std::string &path);
+-bool makedir(const std::string &path);
+-
+-#endif
++} // namespace openvfife
+diff --git a/scripts/build_wasm.sh b/scripts/build_wasm.sh
+index 804d6bc..69ffc29 100755
+--- a/scripts/build_wasm.sh
++++ b/scripts/build_wasm.sh
+@@ -16,9 +16,10 @@ fi
+ 
+ mkdir -p web/src/solver
+ 
+-em++ -O3 -std=c++20 -I headers \
+-    src/element.cpp src/gridsection.cpp src/integrator.cpp src/material.cpp \
+-    src/particle.cpp src/section.cpp src/structsystem.cpp \
++em++ -O3 -std=c++20 -I include -I headers \
++    src/core/particle.cpp src/numerics/quadrature.cpp src/material/material.cpp \
++    src/section/section.cpp src/section/grid_section.cpp src/element/element.cpp \
++    src/solver/struct_system.cpp \
+     wasm/vfife_shim.cpp \
+     -s MODULARIZE=1 \
+     -s EXPORT_ES6=1 \
+diff --git a/src/particle.cpp b/src/core/particle.cpp
+similarity index 99%
+rename from src/particle.cpp
+rename to src/core/particle.cpp
+index cd5ee34..80ed409 100644
+--- a/src/particle.cpp
++++ b/src/core/particle.cpp
+@@ -25,12 +25,15 @@
+ // The interface:
+ //
+ 
+-#include "../headers/particle.h"
++#include <openvfife/core/particle.hpp>
+ 
+ #include <stdexcept>
+ #include <string_view>
++#include <iostream>
+ using namespace std;
+ 
++namespace openvfife {
++
+ 
+ /*****************************************************************************/
+ /*                              Helper Functions                             */
+@@ -648,3 +651,5 @@ void Particle::outputAccelarate(fstream &fout) const
+     }
+     fout << accelerate_[5] << endl;
+ }
++
++} // namespace openvfife
+diff --git a/src/element.cpp b/src/element/element.cpp
+similarity index 99%
+rename from src/element.cpp
+rename to src/element/element.cpp
+index 0da3abc..18f95f8 100644
+--- a/src/element.cpp
++++ b/src/element/element.cpp
+@@ -28,11 +28,17 @@
+ // The interface:
+ //
+ 
+-#include "../headers/element.h"
++#include <openvfife/element/base.hpp>
++#include <openvfife/element/frame.hpp>
++#include <openvfife/element/experimental.hpp>
+ 
+ #include <stdexcept>
++#include <cmath>
++#include <iostream>
+ using namespace std;
+ 
++namespace openvfife {
++
+ 
+ /*****************************************************************************/
+ /*                                 helper                                    */
+@@ -1097,4 +1103,5 @@ void Beam3D::outputStrain(fstream &fout)
+ {
+     StructElement::outputStrain(fout);
+ }
+-    
++
++} // namespace openvfife
+diff --git a/src/material.cpp b/src/material/material.cpp
+similarity index 98%
+rename from src/material.cpp
+rename to src/material/material.cpp
+index aabb05d..ea2e465 100644
+--- a/src/material.cpp
++++ b/src/material/material.cpp
+@@ -28,11 +28,16 @@
+ // The interface:
+ //
+ 
+-#include "../headers/material.h"
++#include <openvfife/material/uniaxial.hpp>
++#include <openvfife/material/experimental.hpp>
+ 
+ #include <stdexcept>
++#include <cmath>
++#include <iostream>
+ using namespace std;
+ 
++namespace openvfife {
++
+ /*****************************************************************************/
+ /*                                  Helper                                   */
+ /*****************************************************************************/
+@@ -498,3 +503,5 @@ double UniPower::update(double delta_strain,
+ //     cout << "Et: " << Et_ <<endl;
+ //     cout << "density: " << density_ << endl;
+ // }
++
++} // namespace openvfife
+diff --git a/src/integrator.cpp b/src/numerics/quadrature.cpp
+similarity index 99%
+rename from src/integrator.cpp
+rename to src/numerics/quadrature.cpp
+index 6a2d0aa..1e9d918 100644
+--- a/src/integrator.cpp
++++ b/src/numerics/quadrature.cpp
+@@ -25,12 +25,15 @@
+ // The interface:
+ //
+ 
+-#include "../headers/integrator.h"
++#include <openvfife/numerics/quadrature.hpp>
+ 
+ #include <stdexcept>
++#include <cmath>
+ 
+ using namespace std;
+ 
++namespace openvfife {
++
+ 
+ /*****************************************************************************/
+ /*                             BaseIntegrator                                */
+@@ -416,3 +419,5 @@ GaussLobatto::GaussLobatto(int nodes): BaseIntegrator(nodes)
+         throw std::logic_error("unsupported Gauss-Lobatto order");
+     }
+ }
++
++} // namespace openvfife
+diff --git a/src/gridsection.cpp b/src/section/grid_section.cpp
+similarity index 99%
+rename from src/gridsection.cpp
+rename to src/section/grid_section.cpp
+index 84c3bee..3d7c63b 100644
+--- a/src/gridsection.cpp
++++ b/src/section/grid_section.cpp
+@@ -26,13 +26,16 @@
+ // The interface:
+ //
+ 
+-#include "../headers/gridsection.h"
++#include <openvfife/section/grid_section.hpp>
++#include <openvfife/section/experimental.hpp>
+ 
+ #include <stdexcept>
+ 
+ 
+ using namespace std;
+ 
++namespace openvfife {
++
+ 
+ /*****************************************************************************/
+ /*                                  Helpers                                  */
+@@ -483,3 +486,5 @@ void AngleSteelGrid::initiateResponseContainers(const BaseSection& sect,
+         response.force.push_back(0);
+     }
+ }
++
++} // namespace openvfife
+diff --git a/src/section.cpp b/src/section/section.cpp
+similarity index 98%
+rename from src/section.cpp
+rename to src/section/section.cpp
+index 9dccafb..16956a4 100644
+--- a/src/section.cpp
++++ b/src/section/section.cpp
+@@ -25,13 +25,17 @@
+ // The interface:
+ //
+ 
+-#include "../headers/section.h"
++#include <openvfife/section/section.hpp>
++#include <openvfife/section/experimental.hpp>
+ 
+ #include <cmath>
+ #include <numbers>
+ #include <stdexcept>
++#include <iostream>
+ using namespace std;
+ 
++namespace openvfife {
++
+ 
+ /*****************************************************************************/
+ /*                                BaseSection                                */
+@@ -544,3 +548,5 @@ void Rectangle::info() const
+     cout << "  width: " << width_ << ", height: " << height_ << endl;
+     BaseSection::info();
+ }
++
++} // namespace openvfife
+diff --git a/src/solver/filesystem_helpers.hpp b/src/solver/filesystem_helpers.hpp
+new file mode 100644
+index 0000000..977dce6
+--- /dev/null
++++ b/src/solver/filesystem_helpers.hpp
+@@ -0,0 +1,12 @@
++#pragma once
++
++#include <string>
++
++namespace openvfife {
++
++// Legacy filesystem helpers remain private until #46 isolates result I/O.
++bool isFileExists(const std::string& fname);
++bool isDirExists(const std::string& path);
++bool makedir(const std::string& path);
++
++} // namespace openvfife
+diff --git a/src/structsystem.cpp b/src/solver/struct_system.cpp
+similarity index 99%
+rename from src/structsystem.cpp
+rename to src/solver/struct_system.cpp
+index 5707e85..f512a1b 100644
+--- a/src/structsystem.cpp
++++ b/src/solver/struct_system.cpp
+@@ -25,13 +25,18 @@
+ // The interface:
+ //
+ 
+-#include "../headers/structsystem.h"
++#include <openvfife/solver/struct_system.hpp>
++#include "filesystem_helpers.hpp"
+ 
+ #include <filesystem>
+ #include <stdexcept>
+ #include <system_error>
++#include <fstream>
++#include <iostream>
+ using namespace std;
+ 
++namespace openvfife {
++
+ 
+ /*****************************************************************************/
+ /*                            other functions                                */
+@@ -828,3 +833,5 @@ void StructSystem::removeFreeParticle()
+         }
+     }
+ }
++
++} // namespace openvfife
+diff --git a/tests/check_public_include_surface.py b/tests/check_public_include_surface.py
+new file mode 100644
+index 0000000..f8ea219
+--- /dev/null
++++ b/tests/check_public_include_surface.py
+@@ -0,0 +1,52 @@
++#!/usr/bin/env python3
++"""Verify that supported headers do not pull experimental/support APIs transitively."""
++from __future__ import annotations
++
++import argparse
++import pathlib
++import subprocess
++import tempfile
++
++FORBIDDEN = (
++    "openvfife/material/experimental.hpp",
++    "openvfife/section/experimental.hpp",
++    "openvfife/section/grid_section.hpp",
++    "openvfife/element/experimental.hpp",
++    "headers/config.hpp",
++    "examples/support/config.hpp",
++)
++
++
++def main() -> int:
++    parser = argparse.ArgumentParser()
++    parser.add_argument("--compiler", required=True)
++    parser.add_argument("--source-dir", required=True)
++    parser.add_argument("--header", required=True)
++    args = parser.parse_args()
++
++    source_dir = pathlib.Path(args.source_dir).resolve()
++    with tempfile.TemporaryDirectory() as tmp:
++        source = pathlib.Path(tmp) / "surface.cpp"
++        source.write_text(f"#include <{args.header}>\n", encoding="utf-8")
++        command = [
++            args.compiler,
++            "-std=c++20",
++            f"-I{source_dir / 'include'}",
++            f"-I{source_dir / 'headers'}",
++            "-M",
++            str(source),
++        ]
++        result = subprocess.run(command, check=True, capture_output=True, text=True)
++
++    dependencies = result.stdout.replace("\\\n", " ")
++    leaks = [entry for entry in FORBIDDEN if entry in dependencies]
++    if leaks:
++        raise SystemExit(
++            f"{args.header} leaks unsupported headers transitively: " + ", ".join(leaks)
++        )
++    print(f"supported include surface ok: {args.header}")
++    return 0
++
++
++if __name__ == "__main__":
++    raise SystemExit(main())
+diff --git a/tests/consumer/public_consumer_main.cpp b/tests/consumer/public_consumer_main.cpp
+new file mode 100644
+index 0000000..7cc44db
+--- /dev/null
++++ b/tests/consumer/public_consumer_main.cpp
+@@ -0,0 +1,11 @@
++#include <openvfife/openvfife.hpp>
++
++int openvfife_consumer_particle_id();
++
++int main()
++{
++    openvfife::LinearElastic material(1);
++    material.setE(200.0);
++    openvfife::Rectangle section(2, 1.0, 2.0);
++    return (openvfife_consumer_particle_id() == 42 && material.E() == 200.0 && section.A() == 2.0) ? 0 : 1;
++}
+diff --git a/tests/consumer/public_consumer_model.cpp b/tests/consumer/public_consumer_model.cpp
+new file mode 100644
+index 0000000..9d34091
+--- /dev/null
++++ b/tests/consumer/public_consumer_model.cpp
+@@ -0,0 +1,7 @@
++#include <openvfife/openvfife.hpp>
++
++int openvfife_consumer_particle_id()
++{
++    openvfife::Particle particle(42, 1.0, 2.0, 3.0);
++    return particle.id();
++}
+diff --git a/tests/fortran_parity_probe.cpp b/tests/fortran_parity_probe.cpp
+index ee16b0c..1dd9c4b 100644
+--- a/tests/fortran_parity_probe.cpp
++++ b/tests/fortran_parity_probe.cpp
+@@ -1,16 +1,26 @@
+ // Modern C++ stage probe for the frozen legacy Fortran oracle fixtures.
+ // Emits key,value CSV; validation/fortran/golden/compare_cpp.py owns tolerance
+ // policy and reports the earliest divergent numerical stage.
+-#include "../headers/element.h"
+-#include "../headers/material.h"
+-#include "../headers/particle.h"
+-#include "../headers/section.h"
++#include <openvfife/element/frame.hpp>
++#include <openvfife/material/uniaxial.hpp>
++#include <openvfife/core/particle.hpp>
++#include <openvfife/section/section.hpp>
+ 
+ #include <array>
+ #include <iomanip>
+ #include <iostream>
+ #include <string>
+ 
++using openvfife::StdArray3d;
++using openvfife::StdArray6d;
++using openvfife::Dof;
++using openvfife::Mass;
++using openvfife::Particle;
++using openvfife::LinearElastic;
++using openvfife::CustomSectionParas;
++using openvfife::CustomSection;
++using openvfife::Beam3D;
++
+ using std::cout;
+ using std::setprecision;
+ using std::scientific;
+diff --git a/tests/frame_progression_probe.cpp b/tests/frame_progression_probe.cpp
+index 5566f98..0ebfc13 100644
+--- a/tests/frame_progression_probe.cpp
++++ b/tests/frame_progression_probe.cpp
+@@ -1,10 +1,10 @@
+ // Multi-element C++ progression probe for legacy 3D-frame parity.
+ // This intentionally mirrors frame_progression_oracle.f90 case topology and
+ // output ordering, while using only public OpenVFIFE APIs.
+-#include "../headers/element.h"
+-#include "../headers/material.h"
+-#include "../headers/particle.h"
+-#include "../headers/section.h"
++#include <openvfife/element/frame.hpp>
++#include <openvfife/material/uniaxial.hpp>
++#include <openvfife/core/particle.hpp>
++#include <openvfife/section/section.hpp>
+ 
+ #include <array>
+ #include <iomanip>
+@@ -13,6 +13,16 @@
+ #include <string>
+ #include <vector>
+ 
++using openvfife::StdArray3d;
++using openvfife::StdArray6d;
++using openvfife::DOF;
++using openvfife::Mass;
++using openvfife::Particle;
++using openvfife::LinearElastic;
++using openvfife::CustomSectionParas;
++using openvfife::CustomSection;
++using openvfife::Beam3D;
++
+ using std::cout;
+ using std::setprecision;
+ using std::scientific;
+diff --git a/tests/test_beam2d.cpp b/tests/test_beam2d.cpp
+index 243b7a7..6814fb0 100644
+--- a/tests/test_beam2d.cpp
++++ b/tests/test_beam2d.cpp
+@@ -3,12 +3,23 @@
+ // by dynamic relaxation: damped explicit stepping until the transient dies.
+ //
+ // Build: see scripts/build_native_tests.sh
+-#include "../headers/structsystem.h"
++#include <openvfife/solver/struct_system.hpp>
++#include <openvfife/element/frame.hpp>
+ #include <cmath>
+ #include <cstdio>
+ #include <memory>
+ #include <vector>
+ 
++using openvfife::StdArray6d;
++using openvfife::DOF;
++using openvfife::Particle;
++using openvfife::LinearElastic;
++using openvfife::CustomSectionParas;
++using openvfife::CustomSection;
++using openvfife::StructElement;
++using openvfife::Link2D;
++using openvfife::Beam2D;
++using openvfife::StructSystem;
+ using namespace std;
+ 
+ static int g_checks = 0;
+diff --git a/tests/test_beam3d.cpp b/tests/test_beam3d.cpp
+index cb0797a..7d4d2eb 100644
+--- a/tests/test_beam3d.cpp
++++ b/tests/test_beam3d.cpp
+@@ -5,12 +5,23 @@
+ // test_beam2d.cpp (same checkNear pattern and relax() recipe).
+ //
+ // Build: see scripts/build_native_tests.sh
+-#include "../headers/structsystem.h"
++#include <openvfife/solver/struct_system.hpp>
++#include <openvfife/element/frame.hpp>
+ #include <cmath>
+ #include <cstdio>
+ #include <memory>
+ #include <vector>
+ 
++using openvfife::StdArray3d;
++using openvfife::StdArray6d;
++using openvfife::DOF;
++using openvfife::Particle;
++using openvfife::BaseMaterial;
++using openvfife::LinearElastic;
++using openvfife::CustomSectionParas;
++using openvfife::CustomSection;
++using openvfife::Beam3D;
++using openvfife::StructSystem;
+ using namespace std;
+ 
+ static int g_checks = 0;
+diff --git a/tests/test_element.cpp b/tests/test_element.cpp
+index 953bbdb..3b75b74 100644
+--- a/tests/test_element.cpp
++++ b/tests/test_element.cpp
+@@ -1,9 +1,22 @@
+-#include "../headers/element.h"
++#include <openvfife/element/frame.hpp>
++#include <openvfife/element/experimental.hpp>
+ 
+ #include <cstdio>
+ #include <stdexcept>
+ #include <type_traits>
+ 
++using openvfife::StdArray3d;
++using openvfife::Particle;
++using openvfife::BaseMaterial;
++using openvfife::LinearElastic;
++using openvfife::BaseSection;
++using openvfife::CustomSectionParas;
++using openvfife::CustomSection;
++using openvfife::Link2D;
++using openvfife::Link3D;
++using openvfife::Beam2D;
++using openvfife::Beam3D;
++
+ namespace {
+ int checks = 0;
+ int failures = 0;
+diff --git a/tests/test_gridsection.cpp b/tests/test_gridsection.cpp
+index 58f9e9c..3c6062d 100644
+--- a/tests/test_gridsection.cpp
++++ b/tests/test_gridsection.cpp
+@@ -1,9 +1,22 @@
+-#include "../headers/gridsection.h"
++#include <openvfife/section/grid_section.hpp>
++#include <openvfife/section/experimental.hpp>
+ 
+ #include <cmath>
+ #include <cstdio>
+ #include <stdexcept>
+ 
++using openvfife::LinearElastic;
++using openvfife::CustomSectionParas;
++using openvfife::CustomSection;
++using openvfife::AngleSteel;
++using openvfife::Rectangle;
++using openvfife::CellNodes;
++using openvfife::SectionGridParameter;
++using openvfife::SectionCell;
++using openvfife::SectionResponse;
++using openvfife::RectangleGrid;
++using openvfife::CreateGrid;
++
+ namespace {
+ int checks = 0;
+ int failures = 0;
+diff --git a/tests/test_integrator.cpp b/tests/test_integrator.cpp
+index 6e8196c..6db333d 100644
+--- a/tests/test_integrator.cpp
++++ b/tests/test_integrator.cpp
+@@ -1,10 +1,13 @@
+-#include "../headers/integrator.h"
++#include <openvfife/numerics/quadrature.hpp>
+ 
+ #include <cmath>
+ #include <cstdio>
+ #include <stdexcept>
+ #include <vector>
+ 
++using openvfife::GaussLegendre;
++using openvfife::GaussLobatto;
++
+ namespace {
+ int checks = 0;
+ int failures = 0;
+diff --git a/tests/test_material.cpp b/tests/test_material.cpp
+index 23cba79..47aca6e 100644
+--- a/tests/test_material.cpp
++++ b/tests/test_material.cpp
+@@ -1,10 +1,17 @@
+-#include "../headers/material.h"
++#include <openvfife/material/uniaxial.hpp>
++#include <openvfife/material/experimental.hpp>
+ 
+ #include <array>
+ #include <cmath>
+ #include <cstdio>
+ #include <stdexcept>
+ 
++using openvfife::UniaxialMaterialState;
++using openvfife::LinearElastic;
++using openvfife::UniIdeal;
++using openvfife::UniBilinear;
++using openvfife::UniPower;
++
+ namespace {
+ int checks = 0;
+ int failures = 0;
+diff --git a/tests/test_particle.cpp b/tests/test_particle.cpp
+index 23a96b5..953c1aa 100644
+--- a/tests/test_particle.cpp
++++ b/tests/test_particle.cpp
+@@ -1,9 +1,13 @@
+-#include "../headers/particle.h"
++#include <openvfife/core/particle.hpp>
+ 
+ #include <cmath>
+ #include <cstdio>
+ #include <stdexcept>
+ 
++using openvfife::StdArray6d;
++using openvfife::Dof;
++using openvfife::Particle;
++
+ namespace {
+ int checks = 0;
+ int failures = 0;
+diff --git a/tests/test_section.cpp b/tests/test_section.cpp
+index 128be7a..7acf0ec 100644
+--- a/tests/test_section.cpp
++++ b/tests/test_section.cpp
+@@ -1,9 +1,14 @@
+-#include "../headers/section.h"
++#include <openvfife/section/section.hpp>
++#include <openvfife/section/experimental.hpp>
+ 
+ #include <cmath>
+ #include <cstdio>
+ #include <stdexcept>
+ 
++using openvfife::CustomSectionParas;
++using openvfife::CustomSection;
++using openvfife::AngleSteel;
++
+ namespace {
+ int checks = 0;
+ int failures = 0;
+diff --git a/tests/test_structsystem.cpp b/tests/test_structsystem.cpp
+index 2b63708..5d222f4 100644
+--- a/tests/test_structsystem.cpp
++++ b/tests/test_structsystem.cpp
+@@ -1,4 +1,6 @@
+-#include "../headers/structsystem.h"
++#include <openvfife/solver/struct_system.hpp>
++#include <openvfife/element/frame.hpp>
++#include "../src/solver/filesystem_helpers.hpp"
+ 
+ #include <cstdio>
+ 
+@@ -8,6 +10,17 @@
+ #include <stdexcept>
+ #include <type_traits>
+ 
++using openvfife::DOF;
++using openvfife::Particle;
++using openvfife::BaseMaterial;
++using openvfife::LinearElastic;
++using openvfife::BaseSection;
++using openvfife::BaseElement;
++using openvfife::StructSystem;
++using openvfife::makedir;
++using openvfife::isDirExists;
++using openvfife::isFileExists;
++
+ namespace {
+ int checks = 0;
+ int failures = 0;
+diff --git a/wasm/vfife_shim.cpp b/wasm/vfife_shim.cpp
+index c572dcc..2fb5985 100644
+--- a/wasm/vfife_shim.cpp
++++ b/wasm/vfife_shim.cpp
+@@ -42,7 +42,11 @@
+ //             Beam2D checks max(|Mi|, |Mj|) against capM; Beam3D checks
+ //             max(|Mz_i|, |Mz_j|, |My_i|, |My_j|) (torsion is not
+ //             checked); |N| vs capN applies to every element kind.
+-#include "../headers/structsystem.h"
++#include <openvfife/solver/struct_system.hpp>
++#include <openvfife/element/frame.hpp>
++#include <openvfife/element/experimental.hpp>
++#include <openvfife/material/uniaxial.hpp>
++#include <openvfife/section/section.hpp>
+ #include <array>
+ #include <cmath>
+ #include <cstring>
+@@ -52,8 +56,29 @@
+ #include <vector>
+ #include <set>
+ 
++using openvfife::StdArray3d;
++using openvfife::StdArray6d;
++using openvfife::DOF;
++using openvfife::Mass;
++using openvfife::Particle;
++using openvfife::BaseMaterial;
++using openvfife::LinearElastic;
++using openvfife::UniBilinear;
++using openvfife::BaseSection;
++using openvfife::CustomSectionParas;
++using openvfife::CustomSection;
++using openvfife::ElementForce;
++using openvfife::BaseElement;
++using openvfife::StructElement;
++using openvfife::Link2DLD;
++using openvfife::Link3DLD;
++using openvfife::Beam2D;
++using openvfife::Beam3D;
++using openvfife::StructSystem;
++
+ #ifdef __EMSCRIPTEN__
+ #include <emscripten/emscripten.h>
++
+ #define VF_EXPORT EMSCRIPTEN_KEEPALIVE
+ #else
+ #define VF_EXPORT
