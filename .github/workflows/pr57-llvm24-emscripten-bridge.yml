@@ -11,8 +11,8 @@ jobs:
   validate:
     runs-on: ubuntu-latest
     env:
-      ORIGIN_PR_HEAD: 4f2972f1d007f134bc720314184edd31cbba0a99
-      MIRROR_TREE: a787cb8794b2fdc8fd2e70db38226cfd3019a131
+      ORIGIN_PR_HEAD: 8798f6b4cbaca6dc09ed244b0962c6a159c9c484
+      MIRROR_TREE: 4a56a0c64efe5f314b0566c450a987ed7d8d1f1b
       EIGEN_TREE: 3a87d0dab1c11e5ca0a260a372ad9e2a07759e5d
       SDK_SHA256: 6e7c6d26cf8bde31e6cf6a377c113f913cb2d30f4c2d671c1042e1c4bcd16495
       SDK_URL: https://storage.googleapis.com/webassembly/emscripten-releases-builds/linux/6afbd83493d647051772d491124187d4e9a0cda9/wasm-binaries.tar.xz
