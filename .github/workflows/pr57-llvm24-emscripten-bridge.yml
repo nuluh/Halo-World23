@@ -1,0 +1,45 @@
+name: PR57 LLVM24 Emscripten bridge
+
+on:
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fetch exact project-nonlinear c521 snapshot
+        run: |
+          set -euo pipefail
+          url="https://git.nuluh.com/attachments/21440a2c-d5e8-4f1a-9621-cb6207fa26ee"
+          out="/tmp/project-nonlinear-c5211203-snapshot.tar.gz"
+          curl -L --fail --retry 3 "$url" -o "$out"
+          mkdir -p /tmp/project-check
+          tar -xzf "$out" -C /tmp/project-check
+          head="$(git -C /tmp/project-check rev-parse HEAD)"
+          printf '%s\n' "$head"
+          test "$head" = "c5211203c3fc8c3e806d907baec63b62fa277669"
+      - name: Upload exact project snapshot
+        uses: actions/upload-artifact@v4
+        with:
+          name: project-nonlinear-c5211203-snapshot
+          path: /tmp/project-nonlinear-c5211203-snapshot.tar.gz
+          retention-days: 1
+
+  sdk:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fetch exact Emscripten 7.0.0 SDK
+        run: |
+          set -euo pipefail
+          url="https://storage.googleapis.com/webassembly/emscripten-releases-builds/linux/6afbd83493d647051772d491124187d4e9a0cda9/wasm-binaries.tar.xz"
+          out="/tmp/wasm-binaries.tar.xz"
+          curl -L --fail --retry 3 "$url" -o "$out"
+          echo "6e7c6d26cf8bde31e6cf6a377c113f913cb2d30f4c2d671c1042e1c4bcd16495  $out" | sha256sum -c -
+      - name: Upload exact Emscripten SDK
+        uses: actions/upload-artifact@v4
+        with:
+          name: emscripten-7.0.0-linux-sdk
+          path: /tmp/wasm-binaries.tar.xz
+          retention-days: 1
