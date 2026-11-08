@@ -1,0 +1,283 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://git.nuluh.com/research/project-nonlinear/raw/branch/dev/validation/fortran/golden/schema.json",
+  "title": "project-nonlinear legacy oracle golden fixture catalog",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "reference_environment",
+    "tolerance_policy",
+    "evidence_groups",
+    "fixtures"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "reference_environment": {
+      "type": "object",
+      "required": [
+        "id",
+        "compiler",
+        "compiler_version",
+        "evidence_issue"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "compiler": {
+          "type": "string"
+        },
+        "compiler_version": {
+          "type": "string"
+        },
+        "evidence_issue": {
+          "type": "integer"
+        },
+        "notes": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "tolerance_policy": {
+      "type": "object",
+      "required": [
+        "formula",
+        "relative_multiplier_epsilon",
+        "relative_tolerance",
+        "unit_classes"
+      ],
+      "properties": {
+        "formula": {
+          "type": "string"
+        },
+        "relative_multiplier_epsilon": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "relative_tolerance": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "unit_classes": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "required": [
+              "max_abs_expected",
+              "absolute_floor",
+              "comparison"
+            ],
+            "properties": {
+              "max_abs_expected": {
+                "type": "number",
+                "minimum": 0
+              },
+              "absolute_floor": {
+                "type": "number",
+                "minimum": 0
+              },
+              "comparison": {
+                "enum": [
+                  "numeric",
+                  "diagnostic_only"
+                ]
+              }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "evidence_groups": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "category",
+          "status",
+          "basis"
+        ],
+        "properties": {
+          "category": {
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "measured",
+              "pending_measurement"
+            ]
+          },
+          "observed_max_abs_error": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "basis": {
+            "type": "string"
+          },
+          "planned_issue": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "fixtures": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "description",
+          "categories",
+          "reference_environment_id",
+          "physical_inputs",
+          "legacy_routines",
+          "legacy_sources",
+          "generation",
+          "output",
+          "unit_rules"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "categories": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1
+          },
+          "reference_environment_id": {
+            "type": "string"
+          },
+          "physical_inputs": {
+            "type": "object"
+          },
+          "legacy_routines": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1
+          },
+          "legacy_sources": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "path",
+                "sha256"
+              ],
+              "properties": {
+                "path": {
+                  "type": "string"
+                },
+                "sha256": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "generation": {
+            "type": "object",
+            "required": [
+              "driver",
+              "driver_sha256",
+              "runner",
+              "runner_sha256",
+              "command",
+              "compiler",
+              "compiler_version"
+            ],
+            "properties": {
+              "driver": {
+                "type": "string"
+              },
+              "driver_sha256": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              "runner": {
+                "type": "string"
+              },
+              "runner_sha256": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              "command": {
+                "type": "string"
+              },
+              "compiler": {
+                "type": "string",
+                "minLength": 1
+              },
+              "compiler_version": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "additionalProperties": false
+          },
+          "output": {
+            "type": "object",
+            "required": [
+              "path",
+              "sha256",
+              "format"
+            ],
+            "properties": {
+              "path": {
+                "type": "string"
+              },
+              "sha256": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              "format": {
+                "const": "key_value_csv"
+              }
+            },
+            "additionalProperties": false
+          },
+          "unit_rules": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "pattern",
+                "unit_class"
+              ],
+              "properties": {
+                "pattern": {
+                  "type": "string"
+                },
+                "unit_class": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": false
+            },
+            "minItems": 1
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

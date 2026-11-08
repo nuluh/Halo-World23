@@ -1,0 +1,974 @@
+{
+  "schema_version": 1,
+  "reference_environment": {
+    "id": "gfortran-14.2.0-linux",
+    "compiler": "GNU Fortran",
+    "compiler_version": "14.2.0",
+    "evidence_issue": 27,
+    "notes": "Original stage-harness acceptance environment from issue #27. Exact compiler/version is also recorded per fixture generation; later fixtures may be regenerated under a compatible GNU Fortran release."
+  },
+  "tolerance_policy": {
+    "formula": "abs(actual - expected) <= absolute_floor + relative_tolerance * abs(expected)",
+    "relative_multiplier_epsilon": 256,
+    "relative_tolerance": 5.684341886080802e-14,
+    "unit_classes": {
+      "N": {
+        "max_abs_expected": 999500.2498749525,
+        "absolute_floor": 5.68150113551242e-8,
+        "comparison": "numeric"
+      },
+      "N_m": {
+        "max_abs_expected": 120000,
+        "absolute_floor": 6.821210263296962e-9,
+        "comparison": "numeric"
+      },
+      "dimensionless": {
+        "max_abs_expected": 123.456,
+        "absolute_floor": 7.0176611188799145e-12,
+        "comparison": "numeric"
+      },
+      "kg": {
+        "max_abs_expected": 274.75,
+        "absolute_floor": 1.5617729332007002e-11,
+        "comparison": "numeric"
+      },
+      "kg_m2": {
+        "max_abs_expected": 9,
+        "absolute_floor": 5.115907697472721e-13,
+        "comparison": "numeric"
+      },
+      "m": {
+        "max_abs_expected": 4,
+        "absolute_floor": 2.2737367544323206e-13,
+        "comparison": "numeric"
+      },
+      "m_s": {
+        "max_abs_expected": 20,
+        "absolute_floor": 1.1368683772161603e-12,
+        "comparison": "numeric"
+      },
+      "m_s2": {
+        "max_abs_expected": 399.99999999999994,
+        "absolute_floor": 2.2737367544323203e-11,
+        "comparison": "numeric"
+      },
+      "mixed_diagnostic": {
+        "max_abs_expected": 0,
+        "absolute_floor": 5.684341886080802e-14,
+        "comparison": "diagnostic_only"
+      },
+      "rad": {
+        "max_abs_expected": 0.03691268881148586,
+        "absolute_floor": 5.684341886080802e-14,
+        "comparison": "numeric"
+      },
+      "rad_s": {
+        "max_abs_expected": 0.030000000000000044,
+        "absolute_floor": 5.684341886080802e-14,
+        "comparison": "numeric"
+      },
+      "rad_s2": {
+        "max_abs_expected": 3.2602015121909766,
+        "absolute_floor": 1.8532100012811137e-13,
+        "comparison": "numeric"
+      }
+    }
+  },
+  "evidence_groups": [
+    {
+      "category": "geometry_local_basis",
+      "status": "measured",
+      "observed_max_abs_error": 0,
+      "basis": "Deterministic byte-compared basis fixtures; rigid-body Z case produced exactly zero internal force in the accepted oracle run.",
+      "planned_issue": null
+    },
+    {
+      "category": "lumped_mass_inertia",
+      "status": "measured",
+      "observed_max_abs_error": 0,
+      "basis": "Deterministic byte-compared xmass/asmb fixtures freeze translational mass, principal inertia, and current-frame rotational inertia.",
+      "planned_issue": null
+    },
+    {
+      "category": "element_forces",
+      "status": "measured",
+      "observed_max_abs_error": 0,
+      "basis": "Accepted frm3D oracle snapshots byte-compare exactly on regeneration for axial, torsion, bending, combined, and rigid-body cases.",
+      "planned_issue": null
+    },
+    {
+      "category": "global_force_assembly",
+      "status": "measured",
+      "observed_max_abs_error": 0,
+      "basis": "Accepted two-element asmb oracle snapshot byte-compares exactly and freezes shared-node accumulation.",
+      "planned_issue": null
+    },
+    {
+      "category": "single_integration_step",
+      "status": "measured",
+      "observed_max_abs_error": 0,
+      "basis": "Issue #29 measured isolated equations against untouched VFIFE and reported max_abs_diff = 0.0 for all compared DOFs.",
+      "planned_issue": null
+    },
+    {
+      "category": "short_transient_history",
+      "status": "measured",
+      "observed_max_abs_error": 5.087412011646086e-13,
+      "basis": "Issue #31 run #189 compared a four-step modern C++ history with the untouched VFIFE loop; all 72 displacement/velocity/acceleration/internal-force values passed the #30 unit-aware policy, with maximum absolute error 5.087412011646086e-13.",
+      "planned_issue": null
+    },
+    {
+      "category": "longer_regression_runs",
+      "status": "measured",
+      "observed_max_abs_error": 0,
+      "basis": "Issue #32 freezes exact GNU Fortran 14.4.0 output signatures for the complete 30,000-step EX4 run and a deterministic 1,000-step prefix of the supplied 2,000,000-step L10E40 case. Reproduction is byte/hash exact (observed reference-oracle drift 0). Modern C++ drift remains guarded separately by the frozen stage/progression fixture suite; this evidence does not assert a full long-run C++/Fortran numerical comparison.",
+      "planned_issue": null
+    }
+  ],
+  "fixtures": [
+    {
+      "id": "3dframe-basic-basis-mass-load",
+      "description": "Initial local basis, lumped mass/inertia, load-curve interpolation edge case, and external-force assembly.",
+      "categories": [
+        "geometry_local_basis",
+        "lumped_mass_inertia"
+      ],
+      "reference_environment_id": "gfortran-14.2.0-linux",
+      "physical_inputs": {
+        "member_geometry_m": {
+          "node1": [
+            0,
+            0,
+            0
+          ],
+          "node2": [
+            2,
+            0,
+            0
+          ],
+          "orientation_point": [
+            0,
+            1,
+            0
+          ]
+        },
+        "density_kg_m3": 7850,
+        "area_m2": 0.01,
+        "inertias_m4": [
+          0.00001,
+          0.00002,
+          0.00003
+        ],
+        "load_curve": [
+          [
+            0,
+            0
+          ],
+          [
+            1,
+            10
+          ],
+          [
+            2,
+            0
+          ]
+        ],
+        "load_amplitudes": [
+          4,
+          3
+        ],
+        "notes": "The exact-final-time curve value intentionally preserves the legacy stale-value quirk."
+      },
+      "legacy_routines": [
+        "bepcrd",
+        "xmass",
+        "curve",
+        "extf"
+      ],
+      "legacy_sources": [
+        {
+          "path": "validation/fortran/legacy/3dframe/bepcrd.f90",
+          "sha256": "90b78592b5d186cdb389ee1406a4933dd9ba7e058fb9d9a3313cb400e53a8d28"
+        },
+        {
+          "path": "validation/fortran/legacy/3dframe/cross.f90",
+          "sha256": "17f56b4741d0868aa678210e7c71ee9ab69dbea97b55aaef1fa84ae308ac45fe"
+        },
+        {
+          "path": "validation/fortran/legacy/3dframe/mass.f90",
+          "sha256": "46f23d09a8c952943b915a30e7ff160f1412e28640fe4029f15affcedbe33d7f"
+        },
+        {
+          "path": "validation/fortran/legacy/3dframe/fext.f90",
+          "sha256": "de2e34e0559124b2aa1345615fc10d6d6a171dc8ceb0b3455b41619ce71a22ad"
+        }
+      ],
+      "generation": {
+        "driver": "validation/fortran/cases/3dframe/basic_oracle.f90",
+        "driver_sha256": "a6c0b3f4ec7db73b8fcc39557e5fe2e16942e011bf81aef152ebe015490013b3",
+        "runner": "validation/fortran/cases/3dframe/run_basic.sh",
+        "runner_sha256": "48756104c1da960a49dd2f03d6cca8da8f53cda77ef39f4e0949a5d7abf08afd",
+        "command": "bash validation/fortran/cases/3dframe/run_basic.sh",
+        "compiler": "GNU Fortran",
+        "compiler_version": "14.2.0"
+      },
+      "output": {
+        "path": "validation/fortran/cases/3dframe/expected/basic_oracle.csv",
+        "sha256": "81e863717031c02bcc580f418ff9056fe2c04c1d16fc6e4f4414115a145d0e92",
+        "format": "key_value_csv"
+      },
+      "unit_rules": [
+        {
+          "pattern": "^basis\\.[1-9]$",
+          "unit_class": "dimensionless"
+        },
+        {
+          "pattern": "^tmass\\.[1-6]$",
+          "unit_class": "kg"
+        },
+        {
+          "pattern": "^(emasr\\.[1-3]|rmas_node[12]\\.[1-6])$",
+          "unit_class": "kg_m2"
+        },
+        {
+          "pattern": "^curve_(half|final_exact|after_final)$",
+          "unit_class": "dimensionless"
+        },
+        {
+          "pattern": "^fext_half\\.[1-6]$",
+          "unit_class": "N"
+        },
+        {
+          "pattern": "^fext_half\\.(7|8|9|10|11|12)$",
+          "unit_class": "N_m"
+        }
+      ]
+    },
+    {
+      "id": "3dframe-element-force",
+      "description": "Co-rotational 3D beam deformation, force, and updated basis for axial/torsion/bending/combined/rigid-body motion.",
+      "categories": [
+        "geometry_local_basis",
+        "element_forces"
+      ],
+      "reference_environment_id": "gfortran-14.2.0-linux",
+      "physical_inputs": {
+        "member_length_m": 2,
+        "E_Pa": 200000000000,
+        "G_Pa": 80000000000,
+        "area_m2": 0.01,
+        "J_m4": 0.00001,
+        "Iy_m4": 0.00002,
+        "Iz_m4": 0.00003,
+        "cases": {
+          "axial_extension": "node 2 +X translation = 0.001 m",
+          "torsion": "node 2 Rx = 0.01 rad",
+          "bend_y_node1": "node 1 Ry = 0.01 rad",
+          "bend_z_node1": "node 1 Rz = 0.01 rad",
+          "combined": "mixed translations and rotations as encoded in frm3d_oracle.f90",
+          "rigid_z": "exact rigid-body rotation theta = 0.01 rad about global Z"
+        }
+      },
+      "legacy_routines": [
+        "frm3D"
+      ],
+      "legacy_sources": [
+        {
+          "path": "validation/fortran/legacy/3dframe/bm3D.f90",
+          "sha256": "6fa79339824df1d724071dcbc7c4d56a0f19113ed4ca566b8741b8a20ed82c8d"
+        },
+        {
+          "path": "validation/fortran/legacy/3dframe/cross.f90",
+          "sha256": "17f56b4741d0868aa678210e7c71ee9ab69dbea97b55aaef1fa84ae308ac45fe"
+        }
+      ],
+      "generation": {
+        "driver": "validation/fortran/cases/3dframe/frm3d_oracle.f90",
+        "driver_sha256": "dfce64e621056d393f966a59f07e385081fc3d16803c6f3eea4edeb15eb69436",
+        "runner": "validation/fortran/cases/3dframe/run_frm3d.sh",
+        "runner_sha256": "185cd974b701f4f555fc1079675eb53261900c0fc203499325b4ef081e585238",
+        "command": "bash validation/fortran/cases/3dframe/run_frm3d.sh",
+        "compiler": "GNU Fortran",
+        "compiler_version": "14.2.0"
+      },
+      "output": {
+        "path": "validation/fortran/cases/3dframe/expected/frm3d_oracle.csv",
+        "sha256": "347365688ee8c1456f6aa06b1d67ff818428b7d6e311b840916445302cdd97d2",
+        "format": "key_value_csv"
+      },
+      "unit_rules": [
+        {
+          "pattern": "^[^.]+\\.basis\\.[1-9]$",
+          "unit_class": "dimensionless"
+        },
+        {
+          "pattern": "^[^.]+\\.dd\\.(1|2|3|4|5|6)$",
+          "unit_class": "m"
+        },
+        {
+          "pattern": "^[^.]+\\.dd\\.(7|8|9|10|11|12)$",
+          "unit_class": "rad"
+        },
+        {
+          "pattern": "^[^.]+\\.elf\\.(1|2|3|7|8|9)$",
+          "unit_class": "N"
+        },
+        {
+          "pattern": "^[^.]+\\.elf\\.(4|5|6|10|11|12)$",
+          "unit_class": "N_m"
+        }
+      ]
+    },
+    {
+      "id": "3dframe-global-assembly",
+      "description": "Two-element shared-node global internal-force accumulation and current-frame rotational-mass assembly.",
+      "categories": [
+        "lumped_mass_inertia",
+        "global_force_assembly"
+      ],
+      "reference_environment_id": "gfortran-14.2.0-linux",
+      "physical_inputs": {
+        "element_connectivity": [
+          [
+            1,
+            2
+          ],
+          [
+            2,
+            3
+          ]
+        ],
+        "element1_force_components": "1..12",
+        "element2_force_components": "101..112",
+        "principal_rotational_inertias": [
+          [
+            1,
+            2,
+            3
+          ],
+          [
+            4,
+            5,
+            6
+          ]
+        ],
+        "basis": "identity for both elements"
+      },
+      "legacy_routines": [
+        "asmb"
+      ],
+      "legacy_sources": [
+        {
+          "path": "validation/fortran/legacy/3dframe/asmb.f90",
+          "sha256": "410dd026093ec0ddca53f2e3a0bd0ecc5f5e0bdc69316938a9dcb1f367fcc917"
+        }
+      ],
+      "generation": {
+        "driver": "validation/fortran/cases/3dframe/asmb_oracle.f90",
+        "driver_sha256": "70b1db63ba54e3e08f14f1e5e62396780727c113b84e4f7117e30bc573bc0817",
+        "runner": "validation/fortran/cases/3dframe/run_asmb.sh",
+        "runner_sha256": "3d0815caea2bf5988531031baa1f235489f547d65ec4686b3a84ed2a0ecebf2e",
+        "command": "bash validation/fortran/cases/3dframe/run_asmb.sh",
+        "compiler": "GNU Fortran",
+        "compiler_version": "14.2.0"
+      },
+      "output": {
+        "path": "validation/fortran/cases/3dframe/expected/asmb_oracle.csv",
+        "sha256": "1f3122d69f9896c2c38ce60b5489a190ae1eb060224eb632bc2ac337b8413aad",
+        "format": "key_value_csv"
+      },
+      "unit_rules": [
+        {
+          "pattern": "^fint\\.(1|2|3|4|5|6|7|8|9)$",
+          "unit_class": "N"
+        },
+        {
+          "pattern": "^fint\\.(10|11|12|13|14|15|16|17|18)$",
+          "unit_class": "N_m"
+        },
+        {
+          "pattern": "^rmas_node[123]\\.[1-6]$",
+          "unit_class": "kg_m2"
+        }
+      ]
+    },
+    {
+      "id": "3dframe-central-step",
+      "description": "One normal explicit central-difference step, including coupled rotational inertia, cross-checked against untouched VFIFE.",
+      "categories": [
+        "single_integration_step"
+      ],
+      "reference_environment_id": "gfortran-14.2.0-linux",
+      "physical_inputs": {
+        "dt_s": 0.1,
+        "damping_factor_per_s": 0.4,
+        "translational_mass_kg": [
+          2,
+          4,
+          5
+        ],
+        "rotational_inertia_kg_m2": [
+          2,
+          3,
+          4,
+          0.2,
+          0.1,
+          0.3
+        ],
+        "initial_displacement": [
+          0.1,
+          -0.05,
+          0.02,
+          0.01,
+          -0.02,
+          0.03
+        ],
+        "initial_velocity": [
+          0.2,
+          -0.1,
+          0.05,
+          0.02,
+          0.01,
+          -0.03
+        ],
+        "external_load": [
+          10,
+          -8,
+          4,
+          6,
+          -5,
+          3
+        ],
+        "notes": "First three DOFs are translation; last three are rotation. No elements/internal force are present."
+      },
+      "legacy_routines": [
+        "VFIFE",
+        "curve",
+        "extf",
+        "solrnd",
+        "asmb",
+        "frm3D"
+      ],
+      "legacy_sources": [
+        {
+          "path": "validation/fortran/legacy/3dframe/vfife.f90",
+          "sha256": "f3a66c632adfad09cb858c85bad615186907f10ebde4cf042a71ff39f3c40076"
+        },
+        {
+          "path": "validation/fortran/legacy/3dframe/fext.f90",
+          "sha256": "de2e34e0559124b2aa1345615fc10d6d6a171dc8ceb0b3455b41619ce71a22ad"
+        },
+        {
+          "path": "validation/fortran/legacy/3dframe/solrnd.f90",
+          "sha256": "16d6812c4f9e445b6b263bad76524a643b8e7db9ab9d49caa17feb7187d1e7fc"
+        },
+        {
+          "path": "validation/fortran/legacy/3dframe/asmb.f90",
+          "sha256": "410dd026093ec0ddca53f2e3a0bd0ecc5f5e0bdc69316938a9dcb1f367fcc917"
+        },
+        {
+          "path": "validation/fortran/legacy/3dframe/bm3D.f90",
+          "sha256": "6fa79339824df1d724071dcbc7c4d56a0f19113ed4ca566b8741b8a20ed82c8d"
+        },
+        {
+          "path": "validation/fortran/legacy/3dframe/cross.f90",
+          "sha256": "17f56b4741d0868aa678210e7c71ee9ab69dbea97b55aaef1fa84ae308ac45fe"
+        }
+      ],
+      "generation": {
+        "driver": "validation/fortran/cases/3dframe/central_step_oracle.f90",
+        "driver_sha256": "f76022baa0aca1860287e76376a143f1915974e3a81688c771edb6a9fa559382",
+        "runner": "validation/fortran/cases/3dframe/run_central_step.sh",
+        "runner_sha256": "f8f5a8bacc33808a3aa32d5b92638a1bd76036951c0e1c9aa05d596d61cd24e3",
+        "command": "bash validation/fortran/cases/3dframe/run_central_step.sh",
+        "compiler": "GNU Fortran",
+        "compiler_version": "14.2.0"
+      },
+      "output": {
+        "path": "validation/fortran/cases/3dframe/expected/central_step_oracle.csv",
+        "sha256": "350c334339ec627c25adf43990cd96b771fd86e8c98ebdb25463d1223a6420c4",
+        "format": "key_value_csv"
+      },
+      "unit_rules": [
+        {
+          "pattern": "^(dprev_isolated|dnext_isolated|increment_isolated|dnext_full_vfife|increment_full_vfife)\\.(1|2|3)$",
+          "unit_class": "m"
+        },
+        {
+          "pattern": "^(dprev_isolated|dnext_isolated|increment_isolated|dnext_full_vfife|increment_full_vfife)\\.(4|5|6)$",
+          "unit_class": "rad"
+        },
+        {
+          "pattern": "^(velocity_isolated|velocity_full_vfife)\\.(1|2|3)$",
+          "unit_class": "m_s"
+        },
+        {
+          "pattern": "^(velocity_isolated|velocity_full_vfife)\\.(4|5|6)$",
+          "unit_class": "rad_s"
+        },
+        {
+          "pattern": "^(accel_isolated|accel_full_vfife)\\.(1|2|3)$",
+          "unit_class": "m_s2"
+        },
+        {
+          "pattern": "^(accel_isolated|accel_full_vfife)\\.(4|5|6)$",
+          "unit_class": "rad_s2"
+        },
+        {
+          "pattern": "^(dnext|increment)\\.abs_diff\\.(1|2|3)$",
+          "unit_class": "m"
+        },
+        {
+          "pattern": "^(dnext|increment)\\.abs_diff\\.(4|5|6)$",
+          "unit_class": "rad"
+        },
+        {
+          "pattern": "^velocity\\.abs_diff\\.(1|2|3)$",
+          "unit_class": "m_s"
+        },
+        {
+          "pattern": "^velocity\\.abs_diff\\.(4|5|6)$",
+          "unit_class": "rad_s"
+        },
+        {
+          "pattern": "^accel\\.abs_diff\\.(1|2|3)$",
+          "unit_class": "m_s2"
+        },
+        {
+          "pattern": "^accel\\.abs_diff\\.(4|5|6)$",
+          "unit_class": "rad_s2"
+        },
+        {
+          "pattern": "^(dnext|velocity|accel|increment)\\.rel_diff\\.[1-6]$",
+          "unit_class": "dimensionless"
+        },
+        {
+          "pattern": "^max_abs_diff$",
+          "unit_class": "mixed_diagnostic"
+        }
+      ]
+    },
+    {
+      "id": "3dframe-prescribed-dof39",
+      "description": "Legacy sample-specific hard-coded node-13 global-Z prescribed-displacement branch.",
+      "categories": [
+        "single_integration_step"
+      ],
+      "reference_environment_id": "gfortran-14.2.0-linux",
+      "physical_inputs": {
+        "translation_nodes": 13,
+        "meqt": 39,
+        "dt_s": 0.1,
+        "nts": 1,
+        "legacy_prescribed_total_displacement_m": -4,
+        "notes": "This fixture preserves legacy L10E40 behavior and is not a general production-integrator rule."
+      },
+      "legacy_routines": [
+        "VFIFE"
+      ],
+      "legacy_sources": [
+        {
+          "path": "validation/fortran/legacy/3dframe/vfife.f90",
+          "sha256": "f3a66c632adfad09cb858c85bad615186907f10ebde4cf042a71ff39f3c40076"
+        },
+        {
+          "path": "validation/fortran/legacy/3dframe/fext.f90",
+          "sha256": "de2e34e0559124b2aa1345615fc10d6d6a171dc8ceb0b3455b41619ce71a22ad"
+        },
+        {
+          "path": "validation/fortran/legacy/3dframe/solrnd.f90",
+          "sha256": "16d6812c4f9e445b6b263bad76524a643b8e7db9ab9d49caa17feb7187d1e7fc"
+        },
+        {
+          "path": "validation/fortran/legacy/3dframe/asmb.f90",
+          "sha256": "410dd026093ec0ddca53f2e3a0bd0ecc5f5e0bdc69316938a9dcb1f367fcc917"
+        },
+        {
+          "path": "validation/fortran/legacy/3dframe/bm3D.f90",
+          "sha256": "6fa79339824df1d724071dcbc7c4d56a0f19113ed4ca566b8741b8a20ed82c8d"
+        },
+        {
+          "path": "validation/fortran/legacy/3dframe/cross.f90",
+          "sha256": "17f56b4741d0868aa678210e7c71ee9ab69dbea97b55aaef1fa84ae308ac45fe"
+        }
+      ],
+      "generation": {
+        "driver": "validation/fortran/cases/3dframe/prescribed_dof_oracle.f90",
+        "driver_sha256": "d745da7349c95bb5688b0339e5460d5a4ac26903472f86c8b2ccb8b32c980c89",
+        "runner": "validation/fortran/cases/3dframe/run_prescribed_dof.sh",
+        "runner_sha256": "8367112e9e01cf3ec64d4258d7a36abc5b043ac59711e7c94b7b905a6e898b6e",
+        "command": "bash validation/fortran/cases/3dframe/run_prescribed_dof.sh",
+        "compiler": "GNU Fortran",
+        "compiler_version": "14.2.0"
+      },
+      "output": {
+        "path": "validation/fortran/cases/3dframe/expected/prescribed_dof_oracle.csv",
+        "sha256": "ad867b6c466b5f4631525b7e1b361806bae21f6b43d0b1ee907ba7e157a517e5",
+        "format": "key_value_csv"
+      },
+      "unit_rules": [
+        {
+          "pattern": "^(dof39_increment|dof39_displacement|node13_z_coordinate|neighbor_dof38_increment)$",
+          "unit_class": "m"
+        },
+        {
+          "pattern": "^dof39_velocity$",
+          "unit_class": "m_s"
+        },
+        {
+          "pattern": "^dof39_acceleration$",
+          "unit_class": "m_s2"
+        }
+      ]
+    },
+    {
+      "id": "3dframe-progressive-frames-transient",
+      "description": "Progressive multi-element 3D-frame oracle: continuous beam, planar portal, spatial frame, and a four-step transient through the untouched VFIFE loop.",
+      "categories": [
+        "geometry_local_basis",
+        "lumped_mass_inertia",
+        "element_forces",
+        "global_force_assembly",
+        "short_transient_history"
+      ],
+      "reference_environment_id": "gfortran-14.2.0-linux",
+      "physical_inputs": {
+        "material": {
+          "E_Pa": 200000000000,
+          "G_Pa": 80000000000,
+          "density_kg_m3": 7850
+        },
+        "section": {
+          "area_m2": 0.01,
+          "J_m4": 0.00001,
+          "Iy_m4": 0.00002,
+          "Iz_m4": 0.00003
+        },
+        "continuous_beam": {
+          "nodes_m": [
+            [
+              0,
+              0,
+              0
+            ],
+            [
+              2,
+              0,
+              0
+            ],
+            [
+              4,
+              0,
+              0
+            ]
+          ],
+          "elements": [
+            [
+              1,
+              2
+            ],
+            [
+              2,
+              3
+            ]
+          ],
+          "reference_directions": [
+            [
+              0,
+              1,
+              0
+            ],
+            [
+              0,
+              1,
+              0
+            ]
+          ],
+          "nonzero_legacy_dd": {
+            "6": -0.0005,
+            "8": 0.001,
+            "14": 0.001,
+            "18": 0.002
+          }
+        },
+        "planar_portal": {
+          "nodes_m": [
+            [
+              0,
+              0,
+              0
+            ],
+            [
+              0,
+              0,
+              3
+            ],
+            [
+              4,
+              0,
+              3
+            ],
+            [
+              4,
+              0,
+              0
+            ]
+          ],
+          "elements": [
+            [
+              1,
+              2
+            ],
+            [
+              2,
+              3
+            ],
+            [
+              3,
+              4
+            ]
+          ],
+          "reference_directions": [
+            [
+              0,
+              1,
+              0
+            ],
+            [
+              0,
+              1,
+              0
+            ],
+            [
+              0,
+              1,
+              0
+            ]
+          ],
+          "nonzero_legacy_dd": {
+            "4": 0.001,
+            "7": 0.0012,
+            "17": 0.002,
+            "20": -0.0015
+          }
+        },
+        "spatial_frame": {
+          "nodes_m": [
+            [
+              0,
+              0,
+              0
+            ],
+            [
+              2,
+              0,
+              0
+            ],
+            [
+              2,
+              2,
+              0
+            ],
+            [
+              2,
+              2,
+              2
+            ]
+          ],
+          "elements": [
+            [
+              1,
+              2
+            ],
+            [
+              2,
+              3
+            ],
+            [
+              3,
+              4
+            ]
+          ],
+          "reference_directions": [
+            [
+              0,
+              1,
+              0
+            ],
+            [
+              0,
+              0,
+              1
+            ],
+            [
+              1,
+              0,
+              0
+            ]
+          ],
+          "nonzero_legacy_dd": {
+            "7": 0.0001,
+            "8": -0.0002,
+            "9": 0.00015,
+            "10": 0.0003,
+            "11": -0.0004,
+            "12": 0.0005,
+            "19": 0.001,
+            "20": -0.0015,
+            "21": 0.002,
+            "22": 0.002,
+            "23": -0.003,
+            "24": 0.004
+          }
+        },
+        "short_transient": {
+          "topology": "continuous_beam",
+          "fixed_node": 1,
+          "loads": [
+            {
+              "node": 2,
+              "direction": "global_y",
+              "amplitude_N": -100
+            },
+            {
+              "node": 3,
+              "direction": "global_y",
+              "amplitude_N": -100
+            }
+          ],
+          "dt_s": 0.00001,
+          "steps": 4,
+          "mass_damping_per_s": 0
+        }
+      },
+      "legacy_routines": [
+        "bepcrd",
+        "xmass",
+        "frm3D",
+        "asmb",
+        "VFIFE",
+        "curve",
+        "extf",
+        "solrnd"
+      ],
+      "legacy_sources": [
+        {
+          "path": "validation/fortran/legacy/3dframe/vfife.f90",
+          "sha256": "f3a66c632adfad09cb858c85bad615186907f10ebde4cf042a71ff39f3c40076"
+        },
+        {
+          "path": "validation/fortran/legacy/3dframe/fext.f90",
+          "sha256": "de2e34e0559124b2aa1345615fc10d6d6a171dc8ceb0b3455b41619ce71a22ad"
+        },
+        {
+          "path": "validation/fortran/legacy/3dframe/solrnd.f90",
+          "sha256": "16d6812c4f9e445b6b263bad76524a643b8e7db9ab9d49caa17feb7187d1e7fc"
+        },
+        {
+          "path": "validation/fortran/legacy/3dframe/asmb.f90",
+          "sha256": "410dd026093ec0ddca53f2e3a0bd0ecc5f5e0bdc69316938a9dcb1f367fcc917"
+        },
+        {
+          "path": "validation/fortran/legacy/3dframe/bm3D.f90",
+          "sha256": "6fa79339824df1d724071dcbc7c4d56a0f19113ed4ca566b8741b8a20ed82c8d"
+        },
+        {
+          "path": "validation/fortran/legacy/3dframe/mass.f90",
+          "sha256": "46f23d09a8c952943b915a30e7ff160f1412e28640fe4029f15affcedbe33d7f"
+        },
+        {
+          "path": "validation/fortran/legacy/3dframe/bepcrd.f90",
+          "sha256": "90b78592b5d186cdb389ee1406a4933dd9ba7e058fb9d9a3313cb400e53a8d28"
+        },
+        {
+          "path": "validation/fortran/legacy/3dframe/cross.f90",
+          "sha256": "17f56b4741d0868aa678210e7c71ee9ab69dbea97b55aaef1fa84ae308ac45fe"
+        }
+      ],
+      "generation": {
+        "driver": "validation/fortran/cases/3dframe/frame_progression_oracle.f90",
+        "driver_sha256": "3c45f7f3ce050ece615906fe15a684b5b6330c5028cba1dddcbf4ad3cbcfceb5",
+        "runner": "validation/fortran/cases/3dframe/run_frame_progression.sh",
+        "runner_sha256": "b3ca979421866c59c5d909b32377dd62b6194dd5915ecba9417933cb2d36e451",
+        "command": "bash validation/fortran/cases/3dframe/run_frame_progression.sh",
+        "compiler": "GNU Fortran",
+        "compiler_version": "14.4.0"
+      },
+      "output": {
+        "path": "validation/fortran/cases/3dframe/expected/frame_progression_oracle.csv",
+        "sha256": "8332c3f9d66cfb4db8c4b3b25a2f7c7798e231264169d9a854878acebfb22141",
+        "format": "key_value_csv"
+      },
+      "unit_rules": [
+        {
+          "pattern": "^(continuous_beam|planar_portal|spatial_frame)\\.element[1-3]\\.basis\\.[1-9]$",
+          "unit_class": "dimensionless"
+        },
+        {
+          "pattern": "^(continuous_beam|planar_portal|spatial_frame)\\.element[1-3]\\.elf\\.(1|2|3|7|8|9)$",
+          "unit_class": "N"
+        },
+        {
+          "pattern": "^(continuous_beam|planar_portal|spatial_frame)\\.element[1-3]\\.elf\\.(4|5|6|10|11|12)$",
+          "unit_class": "N_m"
+        },
+        {
+          "pattern": "^continuous_beam\\.fint\\.[1-9]$",
+          "unit_class": "N"
+        },
+        {
+          "pattern": "^continuous_beam\\.fint\\.(1[0-8])$",
+          "unit_class": "N_m"
+        },
+        {
+          "pattern": "^(planar_portal|spatial_frame)\\.fint\\.(?:[1-9]|1[0-2])$",
+          "unit_class": "N"
+        },
+        {
+          "pattern": "^(planar_portal|spatial_frame)\\.fint\\.(?:1[3-9]|2[0-4])$",
+          "unit_class": "N_m"
+        },
+        {
+          "pattern": "^(continuous_beam|planar_portal|spatial_frame)\\.tmass\\.\\d+$",
+          "unit_class": "kg"
+        },
+        {
+          "pattern": "^(continuous_beam|planar_portal|spatial_frame)\\.rmas_node\\d+\\.[1-6]$",
+          "unit_class": "kg_m2"
+        },
+        {
+          "pattern": "^short_transient\\.d\\.[1-9]$",
+          "unit_class": "m"
+        },
+        {
+          "pattern": "^short_transient\\.d\\.(1[0-8])$",
+          "unit_class": "rad"
+        },
+        {
+          "pattern": "^short_transient\\.v\\.[1-9]$",
+          "unit_class": "m_s"
+        },
+        {
+          "pattern": "^short_transient\\.v\\.(1[0-8])$",
+          "unit_class": "rad_s"
+        },
+        {
+          "pattern": "^short_transient\\.a\\.[1-9]$",
+          "unit_class": "m_s2"
+        },
+        {
+          "pattern": "^short_transient\\.a\\.(1[0-8])$",
+          "unit_class": "rad_s2"
+        },
+        {
+          "pattern": "^short_transient\\.fint\\.[1-9]$",
+          "unit_class": "N"
+        },
+        {
+          "pattern": "^short_transient\\.fint\\.(1[0-8])$",
+          "unit_class": "N_m"
+        }
+      ]
+    }
+  ]
+}
