@@ -1,0 +1,33 @@
+diff --git a/docs/architecture/adr-0001-r1-library-boundaries.md b/docs/architecture/adr-0001-r1-library-boundaries.md
+index 4c3edc2..999e30f 100644
+--- a/docs/architecture/adr-0001-r1-library-boundaries.md
++++ b/docs/architecture/adr-0001-r1-library-boundaries.md
+@@ -327,4 +327,4 @@ This ADR intentionally does not implement the following:
+ - Some historically visible declarations will no longer be promoted as supported
+   public API.
+ - R1 must carry both architecture migration work and explicit compatibility
+-  documentation because the change is source-breaking.
+\ No newline at end of file
++  documentation because the change is source-breaking.
+diff --git a/docs/architecture/r1-capability-inventory.md b/docs/architecture/r1-capability-inventory.md
+index 8206f74..947ddb0 100644
+--- a/docs/architecture/r1-capability-inventory.md
++++ b/docs/architecture/r1-capability-inventory.md
+@@ -165,4 +165,4 @@ These limitations must remain visible in documentation and failure behavior:
+   baseline.
+ - no frame regression can validate ShellTri3/SolidTet4 continuum correctness.
+ - no universal result API, parallel assembly contract, GPU path, full shell/solid
+-  port, or general continuum constitutive framework is an R1 requirement.
+\ No newline at end of file
++  port, or general continuum constitutive framework is an R1 requirement.
+diff --git a/docs/architecture/r1-migration-map.md b/docs/architecture/r1-migration-map.md
+index f1370df..d34cbd3 100644
+--- a/docs/architecture/r1-migration-map.md
++++ b/docs/architecture/r1-migration-map.md
+@@ -222,4 +222,4 @@ issues must prove, at one exact SHA:
+ 5. native fixtures, 183-value and 309-value frozen parity, and ASan/UBSan stay
+    green;
+ 6. WASM is freshly rebuilt from the canonical target and worker smoke checks pass;
+-7. documented examples compile against the new public include prefix.
+\ No newline at end of file
++7. documented examples compile against the new public include prefix.
