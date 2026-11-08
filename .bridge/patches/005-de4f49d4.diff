@@ -1,0 +1,148 @@
+diff --git a/.gitea/workflows/solver-fast.yml b/.gitea/workflows/solver-fast.yml
+index 533e969..ec8c442 100644
+--- a/.gitea/workflows/solver-fast.yml
++++ b/.gitea/workflows/solver-fast.yml
+@@ -15,11 +15,19 @@ jobs:
+     runs-on: ubuntu-latest
+     steps:
+       - uses: actions/checkout@v4
+-      - name: Tool versions
++      - name: Provision native build tools
+         run: |
++          sudo apt-get update
++          sudo apt-get install -y --no-install-recommends cmake ninja-build
++          cmake --version
++          ctest --version
++          ninja --version
+           g++ --version
+           python3 --version
+       - name: Native solver against frozen fixtures
++        env:
++          CMAKE_GENERATOR: Ninja
++          CMAKE_BUILD_PARALLEL_LEVEL: 2
+         run: bash scripts/build_native_tests.sh
+       - name: Golden metadata and hashes
+         run: python3 validation/fortran/golden/verify.py
+@@ -28,7 +36,16 @@ jobs:
+     runs-on: ubuntu-latest
+     steps:
+       - uses: actions/checkout@v4
+-      - name: Sanitizer toolchain
+-        run: g++ --version
++      - name: Provision sanitizer build tools
++        run: |
++          sudo apt-get update
++          sudo apt-get install -y --no-install-recommends cmake ninja-build
++          cmake --version
++          ctest --version
++          ninja --version
++          g++ --version
+       - name: ASan and UBSan validation
++        env:
++          CMAKE_GENERATOR: Ninja
++          CMAKE_BUILD_PARALLEL_LEVEL: 2
+         run: bash scripts/build_native_sanitizers.sh
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 0acb6ed..eb91c11 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -11,12 +11,19 @@ option(OPENVFIFE_WARNINGS_AS_ERRORS "Treat warnings as errors for openVFIFE-owne
+ 
+ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+ 
++if(OPENVFIFE_ENABLE_SANITIZERS AND NOT CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
++    message(FATAL_ERROR
++        "OPENVFIFE_ENABLE_SANITIZERS requires a GNU or Clang-family compiler "
++        "with AddressSanitizer and UndefinedBehaviorSanitizer support."
++    )
++endif()
++
+ # R1 keeps the bundled Eigen 3.4.0 tree as the offline dependency baseline.
+ # #47 will own final install/export mechanics; this interface target establishes
+ # dependency ownership now without downloading or discovering packages at configure time.
+ add_library(openvfife_eigen INTERFACE)
+ add_library(openVFIFE::eigen ALIAS openvfife_eigen)
+-target_include_directories(openvfife_eigen SYSTEM INTERFACE
++target_include_directories(openvfife_eigen INTERFACE
+     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/headers>
+ )
+ 
+diff --git a/docs/native-build.md b/docs/native-build.md
+index 50f7b3f..7fd7097 100644
+--- a/docs/native-build.md
++++ b/docs/native-build.md
+@@ -39,12 +39,19 @@ cmake -S . -B build/native \
+   -DBUILD_TESTING=ON \
+   -DOPENVFIFE_ENABLE_SANITIZERS=OFF \
+   -DOPENVFIFE_ENABLE_HARDENING=ON
+-cmake --build build/native --parallel
+-ctest --test-dir build/native --output-on-failure -L native
++cmake --build build/native --config Release
++ctest --test-dir build/native -C Release --output-on-failure -L native
+ ```
+ 
+ Set `CXX` to select a compiler before the first configure. The wrapper also accepts
+-`OPENVFIFE_BUILD_DIR` and `OPENVFIFE_BUILD_TYPE`.
++`OPENVFIFE_BUILD_DIR` and `OPENVFIFE_BUILD_TYPE`. Build concurrency follows CMake's
++standard `CMAKE_BUILD_PARALLEL_LEVEL` environment variable; for example,
++`CMAKE_BUILD_PARALLEL_LEVEL=1 bash scripts/build_native_tests.sh` performs a
++single-job build. The wrapper does not override that caller-selected limit.
++
++Both wrappers pass the selected build type through `cmake --build --config` and
++`ctest -C`, so the same commands work with single-configuration generators and
++multi-configuration generators such as `Ninja Multi-Config`.
+ 
+ CTest runs the existing Beam2D/Beam3D, unit, shim, and both frozen parity checks.
+ The parity probes write CSV under the configured build directory and compare it
+@@ -68,10 +75,10 @@ cmake -S . -B build/sanitizers \
+   -DBUILD_TESTING=ON \
+   -DOPENVFIFE_ENABLE_SANITIZERS=ON \
+   -DOPENVFIFE_ENABLE_HARDENING=OFF
+-cmake --build build/sanitizers --parallel --target openvfife_sanitizer_targets
++cmake --build build/sanitizers --config RelWithDebInfo --target openvfife_sanitizer_targets
+ ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 \
+ UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 \
+-ctest --test-dir build/sanitizers --output-on-failure -L sanitizer
++ctest --test-dir build/sanitizers -C RelWithDebInfo --output-on-failure -L sanitizer
+ ```
+ 
+ `-fsanitize=address,undefined` is applied while compiling the `openvfife` core and
+@@ -82,7 +89,10 @@ native validation, matching the previous scripts.
+ 
+ The wrapper accepts `OPENVFIFE_SANITIZER_BUILD_DIR` and
+ `OPENVFIFE_SANITIZER_BUILD_TYPE`; `ASAN_OPTIONS` and `UBSAN_OPTIONS` remain
+-overridable by the caller.
++overridable by the caller. `CMAKE_BUILD_PARALLEL_LEVEL` controls sanitizer build
++parallelism in the same way as the native wrapper. Sanitizer mode is intentionally
++limited to GNU/Clang-family compilers; configuration fails explicitly rather than
++silently producing uninstrumented validation targets on unsupported compilers.
+ 
+ ## Build ownership
+ 
+diff --git a/scripts/build_native_sanitizers.sh b/scripts/build_native_sanitizers.sh
+index cfd4bc5..e487e9e 100644
+--- a/scripts/build_native_sanitizers.sh
++++ b/scripts/build_native_sanitizers.sh
+@@ -19,8 +19,8 @@ if [[ -n ${CXX:-} ]]; then
+ fi
+ 
+ cmake "${cmake_args[@]}"
+-cmake --build "$BUILD_DIR" --parallel --target openvfife_sanitizer_targets
++cmake --build "$BUILD_DIR" --config "$BUILD_TYPE" --target openvfife_sanitizer_targets
+ 
+ export ASAN_OPTIONS=${ASAN_OPTIONS:-detect_leaks=1:halt_on_error=1}
+ export UBSAN_OPTIONS=${UBSAN_OPTIONS:-halt_on_error=1:print_stacktrace=1}
+-ctest --test-dir "$BUILD_DIR" --output-on-failure -L sanitizer
++ctest --test-dir "$BUILD_DIR" -C "$BUILD_TYPE" --output-on-failure -L sanitizer
+diff --git a/scripts/build_native_tests.sh b/scripts/build_native_tests.sh
+index bdcd0ad..2ec4c7e 100755
+--- a/scripts/build_native_tests.sh
++++ b/scripts/build_native_tests.sh
+@@ -19,5 +19,5 @@ if [[ -n ${CXX:-} ]]; then
+ fi
+ 
+ cmake "${cmake_args[@]}"
+-cmake --build "$BUILD_DIR" --parallel
+-ctest --test-dir "$BUILD_DIR" --output-on-failure -L native
++cmake --build "$BUILD_DIR" --config "$BUILD_TYPE"
++ctest --test-dir "$BUILD_DIR" -C "$BUILD_TYPE" --output-on-failure -L native
