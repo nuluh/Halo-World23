@@ -1,0 +1,77 @@
+name: OpenVFIFE toolchain chunk bridge
+
+on:
+  push:
+    paths:
+      - ".github/workflows/openvfife-toolchain-chunk-bridge.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  split:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      EMSCRIPTEN_REVISION: 6afbd83493d647051772d491124187d4e9a0cda9
+      EMSCRIPTEN_SHA256: 6e7c6d26cf8bde31e6cf6a377c113f913cb2d30f4c2d671c1042e1c4bcd16495
+      EMSCRIPTEN_URL: https://storage.googleapis.com/webassembly/emscripten-releases-builds/linux/6afbd83493d647051772d491124187d4e9a0cda9/wasm-binaries.tar.xz
+    steps:
+      - name: Download and verify pinned Emscripten 7 / LLVM 24 bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -L --fail --retry 4 --retry-all-errors "$EMSCRIPTEN_URL" -o wasm-binaries.tar.xz
+          echo "$EMSCRIPTEN_SHA256  wasm-binaries.tar.xz" | sha256sum -c -
+          mkdir -p sdk
+          tar -xJf wasm-binaries.tar.xz -C sdk
+          sdk/install/bin/clang --version | head -5 | tee clang-version.txt
+          sdk/install/bin/wasm-ld --version | head -5 | tee wasm-ld-version.txt
+          python3 sdk/install/emscripten/em++ --version | head -5 | tee emscripten-version.txt
+          rm -rf sdk
+      - name: Split archive into Drive-safe pieces
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p chunks
+          split -b 80m -d -a 2 wasm-binaries.tar.xz chunks/project-nonlinear-emscripten-7.0.0-llvm24-linux-x64.tar.xz.part-
+          sha256sum chunks/* > chunks/SHA256SUMS
+          {
+            echo "archive=wasm-binaries.tar.xz"
+            echo "archive_bytes=$(wc -c < wasm-binaries.tar.xz)"
+            echo "archive_sha256=$EMSCRIPTEN_SHA256"
+            echo "revision=$EMSCRIPTEN_REVISION"
+            cat clang-version.txt
+            cat wasm-ld-version.txt
+            cat emscripten-version.txt
+          } > chunks/TOOLCHAIN-MANIFEST.txt
+          ls -lh chunks
+      - uses: actions/upload-artifact@v4
+        with:
+          name: openvfife-toolchain-part-00
+          path: chunks/project-nonlinear-emscripten-7.0.0-llvm24-linux-x64.tar.xz.part-00
+          compression-level: 0
+      - uses: actions/upload-artifact@v4
+        with:
+          name: openvfife-toolchain-part-01
+          path: chunks/project-nonlinear-emscripten-7.0.0-llvm24-linux-x64.tar.xz.part-01
+          compression-level: 0
+      - uses: actions/upload-artifact@v4
+        with:
+          name: openvfife-toolchain-part-02
+          path: chunks/project-nonlinear-emscripten-7.0.0-llvm24-linux-x64.tar.xz.part-02
+          compression-level: 0
+      - uses: actions/upload-artifact@v4
+        with:
+          name: openvfife-toolchain-part-03
+          path: chunks/project-nonlinear-emscripten-7.0.0-llvm24-linux-x64.tar.xz.part-03
+          compression-level: 0
+      - uses: actions/upload-artifact@v4
+        with:
+          name: openvfife-toolchain-metadata
+          path: |
+            chunks/SHA256SUMS
+            chunks/TOOLCHAIN-MANIFEST.txt
+            clang-version.txt
+            wasm-ld-version.txt
+            emscripten-version.txt
