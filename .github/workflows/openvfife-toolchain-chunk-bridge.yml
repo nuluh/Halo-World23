@@ -27,7 +27,7 @@ jobs:
           tar -xJf wasm-binaries.tar.xz -C sdk
           sdk/install/bin/clang --version | head -5 | tee clang-version.txt
           sdk/install/bin/wasm-ld --version | head -5 | tee wasm-ld-version.txt
-          python3 sdk/install/emscripten/em++ --version | head -5 | tee emscripten-version.txt
+          sdk/install/emscripten/em++ --version | head -5 | tee emscripten-version.txt
           rm -rf sdk
       - name: Split archive into Drive-safe pieces
         shell: bash
